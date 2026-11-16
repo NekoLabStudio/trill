@@ -4,10 +4,10 @@ import { call, callJson, deviceAccount, emailAccount, testEnv } from "./helpers"
 describe("signing in", () => {
 	it("creates an account for a new device and returns it for the same device", async () => {
 		const secret = "a".repeat(40);
-		const first = await callJson("POST", "/auth/device", { body: { secret, display_name: "Ivo" } });
+		const first = await callJson("POST", "/auth/device", { body: { game: "test", secret, display_name: "Ivo" } });
 		expect(first.status).toBe(200);
 		expect(first.body.created).toBe(true);
-		const again = await callJson("POST", "/auth/device", { body: { secret } });
+		const again = await callJson("POST", "/auth/device", { body: { game: "test", secret } });
 		expect(again.body.created).toBe(false);
 		expect(again.body.account_id).toBe(first.body.account_id);
 
@@ -16,9 +16,18 @@ describe("signing in", () => {
 	});
 
 	it("refuses a short device secret and a bad token", async () => {
-		expect((await call("POST", "/auth/device", { body: { secret: "short" } })).status).toBe(400);
+		expect((await call("POST", "/auth/device", { body: { game: "test", secret: "short" } })).status).toBe(400);
 		expect((await call("GET", "/account", { token: "nonsense" })).status).toBe(401);
 		expect((await call("GET", "/account")).status).toBe(401);
+	});
+
+	it("makes device accounts only for games that allow them", async () => {
+		const secret = "d".repeat(40);
+		const refused = await callJson("POST", "/auth/device", { body: { game: "platform_only", secret } });
+		expect(refused.status).toBe(403);
+		expect(refused.body.error).toBe("device_accounts_off");
+		expect((await call("POST", "/auth/device", { body: { secret } })).status).toBe(400);
+		expect((await call("POST", "/auth/device", { body: { game: "unknown", secret } })).status).toBe(404);
 	});
 
 	it("signs in with Steam and stores no raw Steam ID", async () => {
@@ -49,7 +58,7 @@ describe("signing in", () => {
 
 	it("matches an identity saved under the previous secret and re-saves it under the new one", async () => {
 		const secret = "r".repeat(40);
-		const first = await callJson("POST", "/auth/device", { body: { secret } });
+		const first = await callJson("POST", "/auth/device", { body: { game: "test", secret } });
 		const rotated = { ...testEnv, IDENTITY_SECRET: "a-new-secret", IDENTITY_SECRET_PREVIOUS: testEnv.IDENTITY_SECRET, IDENTITY_KEY_VERSION: 2 };
 		const { signInWithIdentity } = await import("../src/identities");
 		const again = await signInWithIdentity(rotated, "device", secret, "");

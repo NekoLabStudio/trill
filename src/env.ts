@@ -23,6 +23,15 @@ export interface GameSettings {
 	// Whether those players are also removed from the lobby, as if the host kicked them (false
 	// unless set to true).
 	kick_cheaters?: boolean;
+	// Whether players without a platform sign-in get an account for their device (true unless set
+	// to false). A game that only ships where Steam, Game Center or Play Games signs players in can
+	// turn them off, so nobody can make accounts for it with a single request.
+	device_accounts?: boolean;
+	// Whether only players signed in through Steam, Game Center or Play Games get TURN credentials
+	// (true unless set to false). Those sign-ins are verified by the platform, so nobody can make
+	// accounts in bulk to relay their own traffic on the operator's bill; other players get STUN
+	// and connect directly where they can.
+	turn_needs_platform?: boolean;
 }
 
 export interface Env {

@@ -201,7 +201,7 @@ describe("adding and changing an address", () => {
 		expect(joined.body).toMatchObject({ account_id: mac.id, merged: true });
 		expect(joined.body.providers).toEqual(["device", "device", "email"]);
 		// The phone's platform sign-in reaches the joined account from now on; its own is gone.
-		expect((await callJson("POST", "/auth/device", { body: { secret: phone.secret } })).body.account_id).toBe(mac.id);
+		expect((await callJson("POST", "/auth/device", { body: { game: "test", secret: phone.secret } })).body.account_id).toBe(mac.id);
 		expect(await testEnv.DB.prepare("SELECT id FROM accounts WHERE id = ?").bind(phone.id).first()).toBeNull();
 		expect((await call("GET", "/account", { token: phone.token })).status).toBe(401);
 	});
@@ -236,7 +236,7 @@ describe("adding and changing an address", () => {
 		const player = await deviceAccount();
 		const current = newEmail("old");
 		await verifyEmail(current, player.token);
-		const otherDevice = (await callJson("POST", "/auth/device", { body: { secret: player.secret } })).body.token;
+		const otherDevice = (await callJson("POST", "/auth/device", { body: { game: "test", secret: player.secret } })).body.token;
 
 		const next = newEmail("new");
 		expect((await verifyEmail(next, player.token)).body.error).toBe("bad_email"); // current_email missing

@@ -18,19 +18,19 @@ describe("versions", () => {
 	});
 
 	it("lets every version play when the game sets no range", async () => {
-		const response = await call("POST", "/auth/device", { body: { secret: "v".repeat(40) }, headers: as("test", "0.0.1") });
+		const response = await call("POST", "/auth/device", { body: { game: "test", secret: "v".repeat(40) }, headers: as("test", "0.0.1") });
 		expect(response.status).toBe(200);
 	});
 
 	it("turns away versions outside the game's range, and asks for an update", async () => {
-		const tooOld = await callJson("POST", "/auth/device", { body: { secret: "w".repeat(40) }, headers: as("versioned", "1.1.9") });
+		const tooOld = await callJson("POST", "/auth/device", { body: { game: "test", secret: "w".repeat(40) }, headers: as("versioned", "1.1.9") });
 		expect(tooOld.status).toBe(426);
 		expect(tooOld.body).toMatchObject({ error: "update_required", min_version: "1.2.0", max_version: "2.0" });
-		const unknown = await callJson("POST", "/auth/device", { body: { secret: "w".repeat(40) }, headers: as("versioned") });
+		const unknown = await callJson("POST", "/auth/device", { body: { game: "test", secret: "w".repeat(40) }, headers: as("versioned") });
 		expect(unknown.body.error).toBe("update_required");
-		const tooNew = await callJson("POST", "/auth/device", { body: { secret: "w".repeat(40) }, headers: as("versioned", "2.0.1") });
+		const tooNew = await callJson("POST", "/auth/device", { body: { game: "test", secret: "w".repeat(40) }, headers: as("versioned", "2.0.1") });
 		expect(tooNew.body.error).toBe("version_unsupported");
-		expect((await call("POST", "/auth/device", { body: { secret: "w".repeat(40) }, headers: as("versioned", "1.5") })).status).toBe(200);
-		expect((await call("POST", "/auth/device", { body: { secret: "w".repeat(40) }, headers: as("versioned", "2.0") })).status).toBe(200);
+		expect((await call("POST", "/auth/device", { body: { game: "test", secret: "w".repeat(40) }, headers: as("versioned", "1.5") })).status).toBe(200);
+		expect((await call("POST", "/auth/device", { body: { game: "test", secret: "w".repeat(40) }, headers: as("versioned", "2.0") })).status).toBe(200);
 	});
 });

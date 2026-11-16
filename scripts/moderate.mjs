@@ -13,29 +13,13 @@
 //
 // Add --local to work on the local development database instead (wrangler dev's).
 
-import { args, ask, confirm, databaseName, requireInstanceFolder, run, say, start, wrangler } from "./cli.mjs";
+import { ask, confirm, positional, quote, requireInstanceFolder, say, sql, start } from "./cli.mjs";
 
 // Forever, for a ban with no end: the year 3000 (as the service's own).
 const FOREVER = 32_503_680_000;
 const DAY = 86_400;
 const MAX_LISTED = 50;
 const ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-const local = args.includes("--local");
-const persistTo = args.includes("--persist-to") ? args[args.indexOf("--persist-to") + 1] : "";
-const positional = args.filter((arg, index) => !arg.startsWith("--") && args[index - 1] !== "--persist-to");
-
-// Runs SQL on the database, returning each statement's rows. Wrangler can't bind values, so only
-// checked account IDs, numbers and quoted text (see quote) ever go into a statement.
-function sql(statement) {
-	const target = local ? ["--local", ...(persistTo ? ["--persist-to", persistTo] : [])] : ["--remote"];
-	const out = run(wrangler("d1", "execute", databaseName(), ...target, "--json", "--yes", "--command", statement), { capture: true });
-	return JSON.parse(out).map((result) => result.results ?? []);
-}
-
-function quote(text) {
-	return `'${text.replace(/[\p{Cc}\p{Cf}]/gu, "").replaceAll("'", "''")}'`;
-}
 
 function accountId(text) {
 	const id = (text ?? "").trim().toLowerCase();

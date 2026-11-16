@@ -1,38 +1,134 @@
-// Tests for the setup and update scripts (Node's own test runner: node --test scripts/).
+// Tests for the setup, configure and update scripts (Node's own test runner: node --test scripts/).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { configure } from "./configure.mjs";
+import { parse } from "jsonc-parser";
+import { Changes, mergeRelease } from "./settings.mjs";
 import { copyUpstream, UPSTREAM_CONFIG } from "./release.mjs";
 
 const online = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wranglerConfig = readFileSync(join(online, "wrangler.jsonc"), "utf8");
-const strip = (text) => JSON.parse(text.replace(/^\s*\/\/.*$/gm, ""));
 
-test("fills in wrangler.jsonc and keeps its comments", () => {
-	const games = { "night-drive": { name: "Night Drive", steam_app_id: 4242, bundle_ids: ["com.example.nightdrive"] } };
-	const out = configure(wranglerConfig, { name: "studio-online", databaseId: "11111111-2222-3333-4444-555555555555", games, emailDriver: "cloudflare", emailFrom: 'Night "Drive" <hi@example.com>' });
-	const parsed = strip(out);
+test("edits wrangler.jsonc in place and keeps its comments", () => {
+	const changes = new Changes(wranglerConfig);
+	changes.set(["name"], "studio-online", "Name");
+	changes.set(["d1_databases", 0, "database_id"], "11111111-2222-3333-4444-555555555555", "Database ID");
+	changes.set(["vars", "GAMES"], {}, "Games");
+	changes.set(["vars", "GAMES", "night-drive"], { name: "Night Drive", steam_app_id: 4242 }, "night-drive");
+	changes.set(["vars", "EMAIL_FROM"], 'Night "Drive" <hi@example.com>', "Emails from");
+	changes.set(["ratelimits", 0, "simple", "limit"], 3, "New device accounts");
+	const out = changes.text();
+	const parsed = parse(out);
 	assert.equal(parsed.name, "studio-online");
-	assert.equal(parsed.d1_databases[0].database_name, "studio-online");
 	assert.equal(parsed.d1_databases[0].database_id, "11111111-2222-3333-4444-555555555555");
-	assert.equal(parsed.r2_buckets[0].bucket_name, "studio-online-saves");
-	assert.deepEqual(parsed.vars.GAMES, games);
+	assert.deepEqual(parsed.vars.GAMES, { "night-drive": { name: "Night Drive", steam_app_id: 4242 } });
 	assert.equal(parsed.vars.EMAIL_FROM, 'Night "Drive" <hi@example.com>');
-	assert.equal(parsed.vars.EMAIL_DRIVER, "cloudflare");
-	assert.ok(parsed.send_email);
+	assert.equal(parsed.ratelimits[0].simple.limit, 3);
 	assert.ok(out.includes("// Worker logs stay off"));
+	assert.ok(out.includes("// New device accounts, per connection."));
 });
 
-test("drops Cloudflare's email binding for SMTP2GO", () => {
-	const out = configure(wranglerConfig, { name: "x", databaseId: "d", games: { g: { name: "G" } }, emailDriver: "smtp2go", emailFrom: "G <g@example.com>" });
-	const parsed = strip(out);
-	assert.equal(parsed.vars.EMAIL_DRIVER, "smtp2go");
-	assert.equal(parsed.send_email, undefined);
+test("drops Cloudflare's email binding, with its comment, for SMTP2GO", () => {
+	const changes = new Changes(wranglerConfig);
+	changes.set(["send_email"], undefined, "Cloudflare's email binding");
+	const out = changes.text();
+	assert.equal(parse(out).send_email, undefined);
+	assert.ok(!out.includes("Cloudflare's Email Sending"));
+});
+
+test("only lists what still differs once everything is answered", () => {
+	const changes = new Changes(wranglerConfig, ["SMTP2GO_API_KEY"]);
+	changes.set(["vars", "SESSION_DAYS"], 7, "Session days");
+	changes.set(["vars", "SESSION_DAYS"], 30, "Session days");
+	changes.set(["vars", "MAX_SAVE_SLOTS"], 4, "Save slots");
+	changes.setSecret("STEAM_WEB_API_KEY", "key");
+	changes.dropSecret("SMTP2GO_API_KEY");
+	changes.dropSecret("NEVER_SET");
+	assert.deepEqual(changes.summary(), ["Save slots: 4", "Secret STEAM_WEB_API_KEY: set", "Secret SMTP2GO_API_KEY: removed"]);
+});
+
+test("an update adds the release's new settings and keeps the instance's own", () => {
+	const before = `{
+	"name": "purr-online",
+	"ratelimits": [{ "name": "A_LIMITER", "simple": { "limit": 10, "period": 60 } }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
+	"vars": { "GAMES": { "example": {} }, "SESSION_DAYS": 30, "MAX_SAVE_SLOTS": 8, "AUTO_BAN": { "kicks": 3 }, "OLD_SETTING": 1 }
+}`;
+	const after = `{
+	"name": "purr-online",
+	"ratelimits": [{ "name": "A_LIMITER", "simple": { "limit": 10, "period": 60 } }, { "name": "B_LIMITER", "simple": { "limit": 5, "period": 60 } }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }, { "tag": "v2", "new_sqlite_classes": ["Party"] }],
+	"kv_namespaces": [{ "binding": "CACHE", "id": "x" }],
+	"vars": { "GAMES": { "example": {} }, "SESSION_DAYS": 14, "MAX_SAVE_SLOTS": 10, "AUTO_BAN": { "kicks": 3 }, "NEW_SETTING": 5 }
+}`;
+	const instance = `// Mine.
+{
+	"name": "studio-online",
+	"ratelimits": [{ "name": "A_LIMITER", "simple": { "limit": 10, "period": 60 } }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
+	"vars": { "GAMES": { "night-drive": {} }, "SESSION_DAYS": 30, "MAX_SAVE_SLOTS": 4, "OLD_SETTING": 1 }
+}`;
+	const merged = mergeRelease(instance, before, after);
+	const parsed = parse(merged.text);
+	assert.ok(merged.text.startsWith("// Mine."));
+	assert.equal(parsed.name, "studio-online");
+	assert.deepEqual(parsed.vars.GAMES, { "night-drive": {} });
+	// New: added.
+	assert.equal(parsed.vars.NEW_SETTING, 5);
+	assert.deepEqual(parsed.ratelimits.map((limiter) => limiter.name), ["A_LIMITER", "B_LIMITER"]);
+	assert.deepEqual(parsed.migrations.map((migration) => migration.tag), ["v1", "v2"]);
+	// A default never changed follows the release; one the instance set is kept and listed.
+	assert.equal(parsed.vars.SESSION_DAYS, 14);
+	assert.equal(parsed.vars.MAX_SAVE_SLOTS, 4);
+	assert.match(merged.kept.join("\n"), /vars\.MAX_SAVE_SLOTS: yours is 4; the release's default changed from 8 to 10/);
+	// Taken out on purpose (automatic bans off): stays out.
+	assert.equal(parsed.vars.AUTO_BAN, undefined);
+	assert.deepEqual(merged.unused, ["vars.OLD_SETTING"]);
+	assert.deepEqual(merged.resources, ["kv_namespaces[binding=CACHE]"]);
+	assert.equal(parsed.kv_namespaces, undefined);
+});
+
+test("configure, in a dry run with scripted answers, shows and makes the changes", () => {
+	const copy = mkdtempSync(join(tmpdir(), "purr-configure-"));
+	try {
+		for (const path of ["wrangler.jsonc", "src", "scripts", "package.json"]) {
+			cpSync(join(online, path), join(copy, path), { recursive: true });
+		}
+		symlinkSync(join(online, "node_modules"), join(copy, "node_modules"));
+		const answers = {
+			menu: ["1", "2", "6", ""],
+			game: ["night-drive", ""],
+			game_name: "Night Drive",
+			steam_app_id: "4242",
+			steam_web_api_key: "steam-key",
+			bundle_ids: "com.example.night",
+			email_driver: "smtp2go",
+			email_from: "Night Drive <hi@example.com>",
+			smtp2go_api_key: "api-x",
+			rate_signup_limiter: "3",
+		};
+		const result = spawnSync("node", ["scripts/configure.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify(answers) } });
+		assert.equal(result.status, 0, result.stderr);
+		const out = result.stdout;
+		assert.match(out, /night-drive: Steam App ID: 4242/);
+		assert.match(out, /night-drive: Apple bundle IDs: com\.example\.night/);
+		assert.match(out, /Email sent with: smtp2go/);
+		assert.match(out, /Cloudflare's email binding: removed/);
+		assert.match(out, /New device accounts a minute, per connection: 3/);
+		assert.match(out, /Secret STEAM_WEB_API_KEY: set/);
+		assert.match(out, /Secret SMTP2GO_API_KEY: set/);
+		assert.match(out, /would write wrangler\.jsonc/);
+		assert.match(out, /would run: npx wrangler deploy/);
+		assert.match(out, /would run: npx wrangler secret bulk \(with input\)/);
+		assert.ok(!out.includes("api-x") && !out.includes("steam-key"), "secrets are never printed");
+		assert.equal(readFileSync(join(copy, "wrangler.jsonc"), "utf8"), wranglerConfig);
+	} finally {
+		rmSync(copy, { recursive: true, force: true });
+	}
 });
 
 test("an update replaces Purr's files and keeps the instance's own", () => {
@@ -67,17 +163,18 @@ test("setup, in a dry run with scripted answers, runs the right commands", () =>
 		for (const path of ["wrangler.jsonc", "src", "scripts", "package.json"]) {
 			cpSync(join(online, path), join(copy, path), { recursive: true });
 		}
+		symlinkSync(join(online, "node_modules"), join(copy, "node_modules"));
 		const answers = { name: "Studio Online", game_id: "night-drive", game_name: "Night Drive", steam_app_id: "4242", email_driver: "smtp2go", email_from: "Night Drive <hi@example.com>", smtp2go_api_key: "api-x", steam_web_api_key: "", turn_key_id: "", git: "n" };
 		const result = spawnSync("node", ["scripts/setup.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify(answers) } });
 		assert.equal(result.status, 0, result.stderr);
 		const out = result.stdout;
-		assert.match(out, /would run: npx wrangler d1 create studio-online\n/);
-		assert.match(out, /would run: npx wrangler r2 bucket create studio-online-saves/);
+		assert.match(out, /would run: npx wrangler d1 create studio-online --update-config=false\n/);
+		assert.match(out, /would run: npx wrangler r2 bucket create studio-online-saves --update-config=false\n/);
 		assert.match(out, /would run: npx wrangler r2 bucket lifecycle add studio-online-saves discarded-saves discarded\/ --expire-days 30 --force/);
 		assert.match(out, /would run: npx wrangler d1 migrations apply studio-online --remote/);
 		assert.match(out, /would run: npx wrangler deploy/);
 		assert.match(out, /would run: npx wrangler secret bulk \(with input\)/);
-		assert.match(out, /purr\/online\/game to its ID \(night-drive\)/);
+		assert.match(out, /set online\/url to that address and online\/game to its ID \(night-drive\)/);
 		// A dry run changes nothing.
 		assert.equal(readFileSync(join(copy, "wrangler.jsonc"), "utf8"), wranglerConfig);
 	} finally {

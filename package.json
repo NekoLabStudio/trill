@@ -8,6 +8,7 @@
     "test": "vitest run && node --test scripts/*.test.mjs",
     "check": "tsc --noEmit",
     "setup": "node scripts/setup.mjs",
+    "configure": "node scripts/configure.mjs",
     "update": "node scripts/update.mjs",
     "moderate": "node scripts/moderate.mjs"
   },
@@ -16,6 +17,7 @@
     "@cloudflare/workers-types": "^5.20261115.1",
     "@peculiar/x509": "^3.1.0",
     "@types/node": "^26.6.6",
+    "jsonc-parser": "^3.3.1",
     "reflect-metadata": "^0.2.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0",

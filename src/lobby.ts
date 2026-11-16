@@ -38,6 +38,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { block, recordCheatKick, report } from "./moderation";
 import { recordResult } from "./ratings";
+import { STUN_ONLY, iceServers } from "./turn";
 
 export const MAX_MEMBERS = 8;
 const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -135,9 +136,20 @@ export class Lobby extends DurableObject<Env> {
 		this.ctx.acceptWebSocket(server);
 		server.serializeAttachment(member);
 		const ranked = Boolean(await this.ctx.storage.get<string>("mode"));
-		server.send(JSON.stringify({ type: "welcome", peer_id: member.peer_id, members: members.map(publicMember), ranked }));
+		server.send(JSON.stringify({ type: "welcome", peer_id: member.peer_id, members: members.map(publicMember), ranked, ice_servers: request.headers.get("x-turn") === "1" ? await this.iceServers() : STUN_ONLY }));
 		this.broadcast({ type: "joined", ...publicMember(member) }, server);
 		return new Response(null, { status: 101, webSocket: client });
+	}
+
+	// TURN credentials for a player joining; if the TURN service can't be reached, they still join
+	// and connect directly where they can.
+	private async iceServers(): Promise<unknown[]> {
+		try {
+			return await iceServers(this.env);
+		} catch {
+			console.error("Couldn't get TURN credentials for a player joining a lobby");
+			return STUN_ONLY;
+		}
 	}
 
 	async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {

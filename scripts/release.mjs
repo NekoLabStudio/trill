@@ -12,7 +12,7 @@ export const VERSION_FILE = ".purr-version";
 // The files Purr provides: an update replaces them. Everything else is the instance's own,
 // above all wrangler.jsonc (its settings), src/email-templates/custom/ (its emails) and
 // .dev.vars (local secrets). The default wrangler.jsonc of each release is kept beside the
-// instance's, so an update can show what changed in it.
+// instance's, so an update can tell what the next release changes in it.
 export const UPSTREAM_PATHS = ["src", "migrations", "test", "scripts", "package.json", "package-lock.json", "tsconfig.json", "vitest.config.ts", "README.md", ".gitignore"];
 export const KEPT_INSIDE_UPSTREAM = ["src/email-templates/custom"];
 export const UPSTREAM_CONFIG = ".purr-upstream/wrangler.jsonc";

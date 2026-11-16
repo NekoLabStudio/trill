@@ -19,7 +19,6 @@ import { playGamesClient, verifyPlayGames } from "./providers/play_games";
 import { verifySteamTicket } from "./providers/steam";
 import { checkName, listSaves, readSave, writeSave } from "./saves";
 import { authenticate, authenticateAccount, createSession, type Caller } from "./sessions";
-import { iceServers } from "./turn";
 import { checkClientVersion } from "./client_versions";
 import { PROTOCOL, SERVICE_VERSION } from "./version";
 import { randomCode, normaliseCode } from "./crypto";
@@ -196,7 +195,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 		}
 		const code = normaliseCode(path[1]);
 		const game = url.searchParams.get("game") ?? "";
-		requireGame(env, game);
+		const settings = requireGame(env, game);
 		const caller = await authenticateAccount(env, request);
 		await limitAccount(env.LOBBY_LIMITER, caller, "Too many lobbies; try again in a minute.");
 		if (!/^[0-9A-Z]{6}$/.test(code)) {
@@ -210,6 +209,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 		headers.set("x-display-name", encodeURIComponent(account?.display_name || DEFAULT_NAME));
 		headers.set("x-game", game);
 		headers.set("x-blocked-by", (await blockedBy(env, caller.accountId)).join(","));
+		// TURN credentials only for players a platform vouched for, unless the game allows everyone.
+		const platform = (await listProviders(env, caller.accountId)).some((provider) => provider === "steam" || provider === "game_center" || provider === "play_games");
+		headers.set("x-turn", platform || settings.turn_needs_platform === false ? "1" : "0");
 		return env.LOBBIES.getByName(code).fetch(new Request(request, { headers }));
 	}
 
@@ -251,10 +253,6 @@ async function route(request: Request, env: Env): Promise<Response> {
 		requireGame(env, game);
 		return json(await ratingOf(env, caller.accountId, game, checkName("mode", path[2])));
 	}
-	if (method === "GET" && at("turn")) {
-		await authenticateAccount(env, request);
-		return json(await iceServers(env));
-	}
 
 	throw new HttpError(404, "not_found", `No route for ${method} ${url.pathname}.`);
 }
@@ -292,6 +290,9 @@ async function signIn(request: Request, env: Env, provider: string) {
 	let verified: { provider: Provider; id: string };
 
 	if (provider === "device") {
+		if (requireGame(env, requireString(body, "game", MAX_NAME)).device_accounts === false) {
+			throw new HttpError(403, "device_accounts_off", "This game only signs players in through their platform.");
+		}
 		// A random secret the device keeps; it's the device's identity.
 		const secret = requireString(body, "secret", 256);
 		if (secret.length < 32) {

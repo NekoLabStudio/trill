@@ -4,14 +4,14 @@ import { call, callJson, deviceAccount, emailCode, newEmail } from "./helpers";
 describe("display names", () => {
 	it("uses the platform's name until the player chooses one, then keeps theirs", async () => {
 		const secret = "n".repeat(40);
-		const first = await callJson("POST", "/auth/device", { body: { secret, display_name: "Platform Name" } });
+		const first = await callJson("POST", "/auth/device", { body: { game: "test", secret, display_name: "Platform Name" } });
 		expect(first.body).toMatchObject({ display_name: "Platform Name", name_chosen: false });
-		const renamed = await callJson("POST", "/auth/device", { body: { secret, display_name: "New Platform Name" } });
+		const renamed = await callJson("POST", "/auth/device", { body: { game: "test", secret, display_name: "New Platform Name" } });
 		expect(renamed.body.display_name).toBe("New Platform Name");
 
 		const chosen = await callJson("PUT", "/account/name", { token: renamed.body.token, body: { display_name: "  Inês  " } });
 		expect(chosen.body).toEqual({ display_name: "Inês", name_chosen: true });
-		const again = await callJson("POST", "/auth/device", { body: { secret, display_name: "Platform Again" } });
+		const again = await callJson("POST", "/auth/device", { body: { game: "test", secret, display_name: "Platform Again" } });
 		expect(again.body).toMatchObject({ display_name: "Inês", name_chosen: true });
 		expect((await callJson("GET", "/account", { token: again.body.token })).body).toMatchObject({ display_name: "Inês", name_chosen: true });
 	});
@@ -29,7 +29,7 @@ describe("display names", () => {
 	});
 
 	it("cuts a long platform name to fit", async () => {
-		const signedIn = await callJson("POST", "/auth/device", { body: { secret: "m".repeat(40), display_name: "y".repeat(40) } });
+		const signedIn = await callJson("POST", "/auth/device", { body: { game: "test", secret: "m".repeat(40), display_name: "y".repeat(40) } });
 		expect(signedIn.body.display_name).toBe("y".repeat(24));
 	});
 
@@ -51,10 +51,10 @@ describe("names for guests", () => {
 		expect(guest.body.display_name).toBe("Kid");
 
 		// Later, on their own device, they sign in with a platform and add the same address.
-		const own = await callJson("POST", "/auth/device", { body: { secret: "k".repeat(40), display_name: "PlatformKid" } });
+		const own = await callJson("POST", "/auth/device", { body: { game: "test", secret: "k".repeat(40), display_name: "PlatformKid" } });
 		const linked = await callJson("POST", "/auth/email/verify", { token: own.body.token, body: { email, ...(await emailCode(email)) } });
 		expect(linked.body).toMatchObject({ merged: true, display_name: "Kid", name_chosen: true });
-		const again = await callJson("POST", "/auth/device", { body: { secret: "k".repeat(40), display_name: "PlatformKid" } });
+		const again = await callJson("POST", "/auth/device", { body: { game: "test", secret: "k".repeat(40), display_name: "PlatformKid" } });
 		expect(again.body.display_name).toBe("Kid");
 	});
 });

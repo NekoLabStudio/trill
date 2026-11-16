@@ -119,7 +119,7 @@ describe("a ban outliving the account", () => {
 		expect(Object.keys(kept.results[0] as object).sort()).toEqual(["auto_bans", "banned_until", "identity_hash"]);
 		expect(JSON.stringify(kept.results)).not.toContain(player.secret);
 
-		const again = await callJson("POST", "/auth/device", { body: { secret: player.secret } });
+		const again = await callJson("POST", "/auth/device", { body: { game: "test", secret: player.secret } });
 		expect(again.body.created).toBe(true);
 		expect(await testEnv.DB.prepare("SELECT banned_until, auto_bans FROM accounts WHERE id = ?").bind(again.body.account_id).first()).toEqual({ banned_until: until, auto_bans: 1 });
 		expect((await callJson("POST", "/lobbies", { token: again.body.token, body: { game: "example" } })).status).toBe(403);

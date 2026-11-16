@@ -11,13 +11,11 @@
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { ask, confirm, dryRun, isScripted, requireInstanceFolder, run, say, start, wrangler } from "./cli.mjs";
-import { configure } from "./configure.mjs";
+import { ask, confirm, dryRun, isScripted, requireInstanceFolder, run, say, secretNames, start, wrangler } from "./cli.mjs";
+import { Changes, editEmail, editGame, editTurn, slug } from "./settings.mjs";
 import { UPSTREAM_CONFIG, readVersion } from "./release.mjs";
 
-function slug(text) {
-	return text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50);
-}
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 async function main() {
 	requireInstanceFolder();
@@ -33,59 +31,36 @@ async function main() {
 		run(wrangler("login"));
 	}
 
-	// 2. What this instance is.
-	const name = slug(ask("name", "A name for this instance (the Worker, database and bucket are named after it)", "purr-online")) || "purr-online";
-	const games = {};
+	// 2. What this instance is: its name, games, email and TURN (the same questions as `npm run
+	// configure`, which changes them later). Run again, setup shows the answers it had.
+	const changes = new Changes(readFileSync("wrangler.jsonc", "utf8"), secretNames());
+	const name = slug(ask("name", "A name for this instance (the Worker, database and bucket are named after it)", changes.get(["name"]))) || "purr-online";
+	// The release's example game makes way for the instance's own.
+	if (same(Object.keys(changes.get(["vars", "GAMES"]) ?? {}), ["example"])) {
+		changes.set(["vars", "GAMES"], {}, "Games");
+	}
 	say();
 	say("The games this instance serves. Each game sends its ID (online/game in its project).");
 	do {
-		const id = slug(ask("game_id", "Game ID", Object.keys(games).length === 0 ? "my-game" : ""));
+		const known = Object.keys(changes.get(["vars", "GAMES"]) ?? {});
+		const id = slug(ask("game_id", known.length > 0 ? `Game ID (Enter to keep ${known.join(", ")} as they are)` : "Game ID", known.length === 0 ? "my-game" : ""));
 		if (!id) {
 			break;
 		}
-		const game = { name: ask("game_name", `${id}: its name, for emails`, id) };
-		const steam = ask("steam_app_id", `${id}: Steam App ID (empty if not on Steam)`);
-		if (/^\d+$/.test(steam)) {
-			game.steam_app_id = Number(steam);
-		}
-		const bundles = ask("bundle_ids", `${id}: Apple bundle IDs for Game Center, comma-separated (empty if none)`);
-		if (bundles) {
-			game.bundle_ids = bundles.split(",").map((bundle) => bundle.trim()).filter(Boolean);
-		}
-		games[id] = game;
-	} while (!isScripted && confirm("more_games", "Add another game?", false));
+		editGame(changes, id, { more: false });
+	} while (!isScripted && confirm("more_games", "Add or change another game?", false));
+	const games = Object.keys(changes.get(["vars", "GAMES"]) ?? {});
+	editEmail(changes, `${changes.get(["vars", "GAMES", games[0], "name"]) ?? "Purr"} <noreply@example.com>`);
+	editTurn(changes);
 
-	say();
-	say("Email: sign-in codes go out through Cloudflare's Email Sending (needs Workers Paid and your");
-	say("domain onboarded in Cloudflare) or SMTP2GO (an API key from your SMTP2GO account).");
-	const emailDriver = /^s/i.test(ask("email_driver", "cloudflare or smtp2go", "cloudflare")) ? "smtp2go" : "cloudflare";
-	const emailFrom = ask("email_from", 'Send emails from ("Name <address>")', `${Object.values(games)[0]?.name ?? "Purr"} <noreply@example.com>`);
-	const secrets = {};
-	if (emailDriver === "smtp2go") {
-		secrets.SMTP2GO_API_KEY = ask("smtp2go_api_key", "SMTP2GO API key");
-	}
-	if (Object.values(games).some((game) => game.steam_app_id)) {
-		const key = ask("steam_web_api_key", "Steam publisher Web API key, for Steam sign-in (empty to add later)");
-		if (key) {
-			secrets.STEAM_WEB_API_KEY = key;
-		}
-	}
-	say();
-	say("TURN relays players who can't connect directly. Cloudflare's TURN service needs a key from");
-	say("Realtime in the Cloudflare dashboard; without one, players only get Cloudflare's STUN server.");
-	const turnId = ask("turn_key_id", "Cloudflare TURN key ID (empty to skip)");
-	if (turnId) {
-		secrets.TURN_KEY_ID = turnId;
-		secrets.TURN_KEY_API_TOKEN = ask("turn_key_api_token", "Cloudflare TURN key API token");
-	}
-
-	// 3. The database and the saves bucket.
+	// 3. The database and the saves bucket. Wrangler is told not to add them to wrangler.jsonc
+	// itself: it would add second bindings beside the ones setup fills in.
 	say();
 	say("Creating the database and the saves bucket...");
 	const databases = JSON.parse(run(wrangler("d1", "list", "--json"), { capture: true, pretend: "[]" }) || "[]");
 	let databaseId = databases.find((database) => database.name === name)?.uuid;
 	if (!databaseId) {
-		const created = run(wrangler("d1", "create", name), { capture: true, pretend: '"database_id": "00000000-0000-0000-0000-000000000000"' });
+		const created = run(wrangler("d1", "create", name, "--update-config=false"), { capture: true, pretend: '"database_id": "00000000-0000-0000-0000-000000000000"' });
 		databaseId = /database_id["\s:=]+"([0-9a-f-]{36})"/.exec(created)?.[1];
 		if (!databaseId) {
 			throw new Error("Couldn't read the new database's ID from Wrangler.");
@@ -93,10 +68,14 @@ async function main() {
 	}
 	const buckets = run(wrangler("r2", "bucket", "list"), { capture: true, pretend: "" });
 	if (!new RegExp(`name:\\s*${name}-saves\\b`).test(buckets)) {
-		run(wrangler("r2", "bucket", "create", `${name}-saves`));
+		run(wrangler("r2", "bucket", "create", `${name}-saves`, "--update-config=false"));
 	}
-	// Saves set aside (when accounts join) go after 30 days.
-	run(wrangler("r2", "bucket", "lifecycle", "add", `${name}-saves`, "discarded-saves", "discarded/", "--expire-days", "30", "--force"), { capture: true });
+	// Saves set aside (when accounts join) go after 30 days. Added once: Cloudflare refuses a rule
+	// that's already there, as it is when setup runs again.
+	const rules = run(wrangler("r2", "bucket", "lifecycle", "list", `${name}-saves`), { capture: true, pretend: "", allowFail: true }) ?? "";
+	if (!rules.includes("discarded-saves")) {
+		run(wrangler("r2", "bucket", "lifecycle", "add", `${name}-saves`, "discarded-saves", "discarded/", "--expire-days", "30", "--force"), { capture: true });
+	}
 
 	// 4. The settings. The release's own wrangler.jsonc is kept first, so updates can show what
 	// changes in it.
@@ -104,7 +83,11 @@ async function main() {
 		mkdirSync(".purr-upstream", { recursive: true });
 		copyFileSync("wrangler.jsonc", UPSTREAM_CONFIG);
 	}
-	const config = configure(readFileSync("wrangler.jsonc", "utf8"), { name, databaseId, games, emailDriver, emailFrom });
+	changes.set(["name"], name, "Name");
+	changes.set(["d1_databases", 0, "database_name"], name, "Database");
+	changes.set(["d1_databases", 0, "database_id"], databaseId, "Database ID");
+	changes.set(["r2_buckets", 0, "bucket_name"], `${name}-saves`, "Saves bucket");
+	const config = changes.text();
 	if (dryRun) {
 		say("  would write wrangler.jsonc");
 	} else {
@@ -117,21 +100,17 @@ async function main() {
 	const deployed = run(wrangler("deploy"), { capture: true, pretend: `https://${name}.example.workers.dev` });
 	const url = /https:\/\/[^\s]+\.workers\.dev/.exec(deployed)?.[0] ?? "";
 
-	const existing = run(wrangler("secret", "list", "--format", "json"), { capture: true, pretend: "[]" });
-	const have = new Set((() => {
-		try {
-			return JSON.parse(existing).map((secret) => secret.name);
-		} catch {
-			return [];
-		}
-	})());
+	const secrets = { ...changes.secrets };
 	let identitySecret = "";
-	if (!have.has("IDENTITY_SECRET")) {
+	if (!changes.hasSecret("IDENTITY_SECRET")) {
 		identitySecret = randomBytes(32).toString("base64url");
 		secrets.IDENTITY_SECRET = identitySecret;
 	}
-	if (!have.has("SESSION_SECRET")) {
+	if (!changes.hasSecret("SESSION_SECRET")) {
 		secrets.SESSION_SECRET = randomBytes(32).toString("base64url");
+	}
+	for (const secretName of changes.dropped) {
+		run(wrangler("secret", "delete", secretName), { capture: true });
 	}
 	if (Object.keys(secrets).length > 0) {
 		run(wrangler("secret", "bulk"), { input: JSON.stringify(secrets) });
@@ -153,14 +132,14 @@ async function main() {
 	if (url) {
 		say(`The service is at ${url}`);
 	}
-	say(`In each game's project, set online/url to that address and online/game to its ID (${Object.keys(games).join(", ")}).`);
+	say(`In each game's project, set online/url to that address and online/game to its ID (${games.join(", ")}).`);
 	if (identitySecret) {
 		say();
 		say("Keep this identity secret somewhere safe, such as a password manager. If it's ever lost,");
 		say("no existing player can be matched to their account again:");
 		say(`  ${identitySecret}`);
 	}
-	if (emailDriver === "cloudflare") {
+	if (changes.get(["vars", "EMAIL_DRIVER"]) === "cloudflare") {
 		say();
 		say("Email: onboard the sender's domain under Email Service > Email Sending in the Cloudflare");
 		say("dashboard, if you haven't, and make sure the account is on Workers Paid.");

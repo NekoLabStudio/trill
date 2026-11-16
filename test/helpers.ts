@@ -34,7 +34,7 @@ export async function callJson(method: string, path: string, options: Parameters
 // A new device account: its session token and account ID.
 export async function deviceAccount(name = "Player") {
 	const secret = crypto.randomUUID() + crypto.randomUUID();
-	const { body } = await callJson("POST", "/auth/device", { body: { secret, display_name: name } });
+	const { body } = await callJson("POST", "/auth/device", { body: { game: "test", secret, display_name: name } });
 	return { token: body.token as string, id: body.account_id as string, secret };
 }
 

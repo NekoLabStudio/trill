@@ -1,12 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { call, callJson, deviceAccount, testEnv } from "./helpers";
 
 function nextMessage(socket: WebSocket): Promise<any> {
 	return new Promise((resolve) => socket.addEventListener("message", (event) => resolve(JSON.parse(event.data as string)), { once: true }));
 }
 
-async function join(code: string, token: string) {
-	const response = await call("GET", `/lobbies/${code}/socket?game=test`, { token, headers: { upgrade: "websocket" } });
+async function join(code: string, token: string, game = "test") {
+	const response = await call("GET", `/lobbies/${code}/socket?game=${game}`, { token, headers: { upgrade: "websocket" } });
 	expect(response.status).toBe(101);
 	const socket = response.webSocket!;
 	const welcome = nextMessage(socket);
@@ -22,7 +22,7 @@ describe("lobbies", () => {
 		expect(lobby.code).toMatch(/^[0-9A-Z]{6}$/);
 
 		const a = await join(lobby.code, host.token);
-		expect(a.welcome).toEqual({ type: "welcome", peer_id: 1, members: [], ranked: false });
+		expect(a.welcome).toEqual({ type: "welcome", peer_id: 1, members: [], ranked: false, ice_servers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
 
 		const joined = nextMessage(a.socket);
 		const b = await join(lobby.code.toLowerCase(), friend.token);
@@ -63,9 +63,37 @@ describe("lobbies", () => {
 		b.socket.close();
 	});
 
-	it("gives STUN-only ICE servers when no TURN is configured", async () => {
+	it("gives TURN only to players in a lobby whom a platform signed in", async () => {
+		const stunOnly = [{ urls: "stun:stun.cloudflare.com:3478" }];
+		const turn = JSON.parse(testEnv.TURN_SERVERS!);
 		const player = await deviceAccount();
-		expect((await callJson("GET", "/turn", { token: player.token })).body).toEqual({ ice_servers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
-		expect(testEnv.TURN_KEY_ID).toBeUndefined();
+		expect((await call("GET", "/turn", { token: player.token })).status).toBe(404);
+
+		// A device account: STUN only.
+		const { body: lobby } = await callJson("POST", "/lobbies", { token: player.token, body: { game: "test" } });
+		const device = await join(lobby.code, player.token);
+		expect(device.welcome.ice_servers).toEqual(stunOnly);
+
+		// Signed in through Steam: TURN, even sending its own say-so for it.
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			Response.json({ response: { params: { result: "OK", steamid: "76561198000000077", ownersteamid: "76561198000000077", vacbanned: false, publisherbanned: false } } }),
+		);
+		const steam = (await callJson("POST", "/auth/steam", { body: { game: "test", ticket: "cd".repeat(20) } })).body;
+		fetchSpy.mockRestore();
+		const steamPlayer = await join(lobby.code, steam.token);
+		expect(steamPlayer.welcome.ice_servers).toEqual(turn);
+		const forged = await call("GET", `/lobbies/${lobby.code}/socket?game=test`, { token: player.token, headers: { upgrade: "websocket", "x-turn": "1" } });
+		const forgedWelcome = nextMessage(forged.webSocket!);
+		forged.webSocket!.accept();
+		expect((await forgedWelcome).ice_servers).toEqual(stunOnly);
+
+		// A game that gives TURN to everyone.
+		const { body: open } = await callJson("POST", "/lobbies", { token: player.token, body: { game: "open_relay" } });
+		const openPlayer = await join(open.code, player.token, "open_relay");
+		expect(openPlayer.welcome.ice_servers).toEqual(turn);
+
+		for (const socket of [device.socket, steamPlayer.socket, forged.webSocket!, openPlayer.socket]) {
+			socket.close();
+		}
 	});
 });

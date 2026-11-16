@@ -8,7 +8,7 @@ To set up your own instance, run this in an empty folder (it asks a few question
 curl -fsSL https://oss.nekolab.studio/purr/online/setup.sh | sh
 ```
 
-`npm run update` later brings in Purr's newest release. The settings, protocol and privacy notice are in [the documentation](https://oss.nekolab.studio/purr/online/) (`docs/online/` in this repository).
+`npm run configure` changes its settings later, and `npm run update` brings in Purr's newest release. The settings, protocol and privacy notice are in [the documentation](https://oss.nekolab.studio/purr/online/) (`docs/online/` in this repository).
 
 ```sh
 npm install

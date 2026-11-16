@@ -20,7 +20,11 @@ export default defineConfig(async () => {
 							hosted: { ranked_agreement: "host" },
 							strict: { kick_cheaters: true },
 							versioned: { min_version: "1.2.0", max_version: "2.0" },
+							platform_only: { device_accounts: false },
+							open_relay: { turn_needs_platform: false },
 						},
+						// A TURN server of the operator's own, so tests can tell who gets TURN.
+						TURN_SERVERS: JSON.stringify([{ urls: "turn:turn.example.com:3478", username: "test", credential: "test" }]),
 						EMAIL_DRIVER: "log",
 						EMAIL_FROM: "Test Game <noreply@example.com>",
 					},

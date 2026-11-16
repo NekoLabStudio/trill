@@ -20,9 +20,8 @@ describe("guests", () => {
 		expect((await call("DELETE", "/account", { token: lent.token })).status).toBe(403);
 		expect((await call("GET", "/grants", { token: lent.token })).status).toBe(403);
 		expect((await call("POST", "/guest/email/start", { token: lent.token, body: { email: newEmail(), game: "test" } })).status).toBe(403);
-		// Nor lobbies, TURN or the account's details.
+		// Nor lobbies or the account's details.
 		expect((await call("POST", "/lobbies", { token: lent.token, body: { game: "test" } })).status).toBe(403);
-		expect((await call("GET", "/turn", { token: lent.token })).status).toBe(403);
 		expect((await call("GET", "/account", { token: lent.token })).status).toBe(403);
 		// And only this game's saves.
 		expect((await call("GET", "/saves/small", { token: lent.token })).status).toBe(403);
