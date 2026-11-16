@@ -1,0 +1,72 @@
+// Purr online services. Deploy with `npx wrangler deploy` after creating the database and
+// bucket and setting the secrets (see README.md).
+{
+	"name": "purr-online",
+	"main": "src/index.ts",
+	"find_additional_modules": true,
+	"rules": [{ "type": "Text", "globs": ["email-templates/**/*.html", "email-templates/**/*.txt"], "fallthrough": false }],
+	"compatibility_date": "2026-11-01",
+	// Worker logs stay off: nothing about players is written anywhere it isn't needed.
+	"observability": { "enabled": false },
+	"d1_databases": [
+		{ "binding": "DB", "database_name": "purr-online", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+	],
+	"r2_buckets": [{ "binding": "SAVES", "bucket_name": "purr-online-saves" }],
+	"durable_objects": {
+		"bindings": [
+			{ "name": "LOBBIES", "class_name": "Lobby" },
+			{ "name": "MATCHMAKERS", "class_name": "Matchmaker" }
+		]
+	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby", "Matchmaker"] }],
+	// Cloudflare's Email Sending, for EMAIL_DRIVER "cloudflare" (needs Workers Paid). Remove it
+	// with another driver.
+	"send_email": [{ "name": "EMAIL" }],
+	// Cloudflare's built-in rate limiting, which keeps no addresses. Per Cloudflare location.
+	"ratelimits": [
+		// New device accounts, per connection.
+		{ "name": "SIGNUP_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+		// Email codes sent, per connection (each address also has its own limits).
+		{ "name": "EMAIL_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+		// Email codes checked, per connection.
+		{ "name": "VERIFY_LIMITER", "namespace_id": "1003", "simple": { "limit": 10, "period": 60 } },
+		// Saves read and written, per account and per connection.
+		{ "name": "SAVE_LIMITER", "namespace_id": "1004", "simple": { "limit": 60, "period": 60 } },
+		// Lobbies created and joined, and matchmaking joined, per account.
+		{ "name": "LOBBY_LIMITER", "namespace_id": "1005", "simple": { "limit": 20, "period": 60 } },
+		// Platform sign-ins (each one asks Steam, Apple or Google), per connection.
+		{ "name": "AUTH_LIMITER", "namespace_id": "1006", "simple": { "limit": 20, "period": 60 } }
+	],
+	"triggers": { "crons": ["17 4 * * *"] },
+	"vars": {
+		// Each game this deployment serves, by the id games send. name for emails, steam_app_id for
+		// Steam sign-in, bundle_ids for Game Center's, play_games: true for Google Play Games' (its
+		// OAuth client is in the PLAY_GAMES_CLIENTS secret), and max_save_bytes and
+		// max_save_slots if the game needs other save limits than the defaults below.
+		"GAMES": { "example": { "name": "Example", "steam_app_id": 480, "bundle_ids": ["com.example.game"], "play_games": false } },
+		// How sign-in codes are emailed: "cloudflare" (the send_email binding above) or "smtp2go"
+		// (the SMTP2GO_API_KEY secret). EMAIL_FROM is the sender, "Name <address>".
+		"EMAIL_DRIVER": "cloudflare",
+		"EMAIL_FROM": "Example <noreply@example.com>",
+		// Automatic bans from multiplayer for players removed for cheating (in games with
+		// kick_cheaters): this many removals within within_days, for ban_days[n] days on their nth
+		// ban (the last repeats; null is forever). Remove it to turn automatic bans off.
+		"AUTO_BAN": { "kicks": 3, "within_days": 30, "ban_days": [1, 7, 30, null] },
+		// Automatic action on players' reports, off unless set: reports with one of these reasons
+		// from this many different players within within_days ban the player (ban_days, as above;
+		// the two share the count of bans) or reset their name. Reporters' accounts must be at least
+		// min_reporter_age_days old. Either rule can be left out. For example:
+		// "REPORT_RULES": {
+		//   "ban": { "reasons": ["cheating", "abuse"], "reporters": 5, "within_days": 7, "min_reporter_age_days": 7, "ban_days": [1, 7, 30, null] },
+		//   "rename": { "reasons": ["name"], "reporters": 3, "within_days": 7, "min_reporter_age_days": 7 }
+		// },
+		// Retention and limits (see docs/online/index.md).
+		"INACTIVE_ACCOUNT_DAYS": 730,
+		"DEVICE_GRANT_DAYS": 90,
+		"GUEST_TOKEN_HOURS": 12,
+		"SESSION_DAYS": 30,
+		"MAX_SAVE_BYTES": 1048576,
+		"MAX_SAVE_SLOTS": 8,
+		"IDENTITY_KEY_VERSION": 1
+	}
+}

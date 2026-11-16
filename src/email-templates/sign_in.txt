@@ -1,0 +1,7 @@
+Subject: {{code}} is your code for {{game}}
+
+Your code for {{game}} is {{code}}.
+
+It signs in to your account, so enter it only in the game on your own device, and never give it to anyone.
+
+It works for {{minutes}} minutes. If you didn't ask for it, you can ignore this email.

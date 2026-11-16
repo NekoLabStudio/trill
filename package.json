@@ -1,0 +1,28 @@
+{
+  "name": "purr-online",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run && node --test scripts/*.test.mjs",
+    "check": "tsc --noEmit",
+    "setup": "node scripts/setup.mjs",
+    "update": "node scripts/update.mjs",
+    "moderate": "node scripts/moderate.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.8.2",
+    "@cloudflare/workers-types": "^5.20261115.1",
+    "@peculiar/x509": "^3.1.0",
+    "@types/node": "^26.6.6",
+    "reflect-metadata": "^0.2.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0",
+    "wrangler": "^4.162.0"
+  },
+  "dependencies": {
+    "@peculiar/asn1-schema": "^3.0.0",
+    "@peculiar/asn1-x509": "^3.0.0"
+  }
+}

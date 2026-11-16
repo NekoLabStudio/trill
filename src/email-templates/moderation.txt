@@ -1,0 +1,7 @@
+Subject: Players reported today: {{count}}
+
+These players were reported in the last day:
+
+{{players}}
+
+To read the reports and act on them, run `npm run moderate` in your online services' folder.
