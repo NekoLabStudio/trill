@@ -32,6 +32,7 @@ export default defineConfig(async () => {
 			}),
 		],
 		// The scripts in scripts/ are Node's, tested by Node's own runner (npm test runs both).
-		test: { setupFiles: ["./test/apply-migrations.ts"], include: ["test/**/*.test.ts"] },
+		// A test takes 2 s at most, but a slow CI runner stalls several at once past vitest's default 5 s.
+		test: { setupFiles: ["./test/apply-migrations.ts"], include: ["test/**/*.test.ts"], testTimeout: 15000 },
 	};
 });
