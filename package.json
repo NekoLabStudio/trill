@@ -10,7 +10,8 @@
     "setup": "node scripts/setup.mjs",
     "configure": "node scripts/configure.mjs",
     "update": "node scripts/update.mjs",
-    "moderate": "node scripts/moderate.mjs"
+    "moderate": "node scripts/moderate.mjs",
+		"crashes": "node scripts/crashes.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.8.2",

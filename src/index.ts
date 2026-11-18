@@ -5,6 +5,7 @@
 import type { Env } from "./env";
 import { DEFAULT_NAME, chooseDisplayName, deleteAccount, findAccount } from "./accounts";
 import { cleanUp } from "./cleanup";
+import { receiveCrashReport } from "./crash_reports";
 import { sendModerationDigest } from "./moderation_digest";
 import { HttpError, errorResponse, json, optionalString, readJson, requireString } from "./http";
 import { listProviders, requireGame, signInWithIdentity, findIdentityAccount, type Provider } from "./identities";
@@ -70,6 +71,12 @@ async function route(request: Request, env: Env): Promise<Response> {
 	// What this service is: its version and protocol, for games to check.
 	if (method === "GET" && at("version")) {
 		return json({ version: SERVICE_VERSION, protocol: PROTOCOL });
+	}
+
+	// A crash report, from a player who agreed to send them. Who sent it isn't kept.
+	if (method === "POST" && at("crash-reports")) {
+		const caller = await authenticate(env, request);
+		return json(await receiveCrashReport(env, caller.accountId, await readJson(request), request.headers.get("x-game-version")));
 	}
 
 	// Email: codes, then signing in, adding or changing an address.

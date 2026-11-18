@@ -32,6 +32,8 @@ export interface GameSettings {
 	// accounts in bulk to relay their own traffic on the operator's bill; other players get STUN
 	// and connect directly where they can.
 	turn_needs_platform?: boolean;
+	// Whether players' crash reports are taken (true unless set to false).
+	crash_reports?: boolean;
 }
 
 export interface Env {
@@ -46,6 +48,8 @@ export interface Env {
 	VERIFY_LIMITER: RateLimit;
 	SAVE_LIMITER: RateLimit;
 	LOBBY_LIMITER: RateLimit;
+	// Crash reports, per account (missing on an instance not yet updated: no limit but the day's).
+	CRASH_LIMITER?: RateLimit;
 
 	GAMES: Record<string, GameSettings>;
 	// Automatic bans: this many removals for cheating within within_days ban the player from
@@ -66,6 +70,8 @@ export interface Env {
 	SESSION_DAYS: number;
 	MAX_SAVE_BYTES: number;
 	MAX_SAVE_SLOTS: number;
+	// Crash reports' bytes kept in full for each game a day (DEFAULT_MAX_CRASH_REPORT_BYTES_PER_DAY unless set).
+	MAX_CRASH_REPORT_BYTES_PER_DAY?: number;
 	IDENTITY_KEY_VERSION: number;
 
 	// Secrets.

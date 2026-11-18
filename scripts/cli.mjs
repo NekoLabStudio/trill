@@ -1,4 +1,4 @@
-// What the command-line scripts (setup, configure, update, moderate) share: questions, output,
+// What the command-line scripts (setup, configure, update, moderate, crashes) share: questions, output,
 // running commands (with --dry-run printing them instead), the database and this instance's
 // settings and secrets.
 

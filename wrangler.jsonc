@@ -35,7 +35,9 @@
 		// Lobbies created and joined, and matchmaking joined, per account.
 		{ "name": "LOBBY_LIMITER", "namespace_id": "1005", "simple": { "limit": 20, "period": 60 } },
 		// Platform sign-ins (each one asks Steam, Apple or Google), per connection.
-		{ "name": "AUTH_LIMITER", "namespace_id": "1006", "simple": { "limit": 20, "period": 60 } }
+		{ "name": "AUTH_LIMITER", "namespace_id": "1006", "simple": { "limit": 20, "period": 60 } },
+		// Crash reports, per account.
+		{ "name": "CRASH_LIMITER", "namespace_id": "1007", "simple": { "limit": 5, "period": 60 } }
 	],
 	"triggers": { "crons": ["17 4 * * *"] },
 	"vars": {

@@ -217,3 +217,35 @@ test("moderate lists reported players and acts on them, on a local database", ()
 		rmSync(state, { recursive: true, force: true });
 	}
 });
+
+test("crashes lists crashes, shows their reports and forgets them, on a local database", () => {
+	const state = mkdtempSync(join(tmpdir(), "purr-crashes-"));
+	const wranglerRun = (...args) => spawnSync("npx", ["wrangler", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, CI: "1" } });
+	const crashes = (...args) => spawnSync("node", ["scripts/crashes.mjs", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: "{}" } });
+	const query = (sql) => JSON.parse(wranglerRun("d1", "execute", "purr-online", "--json", "--command", sql).stdout)[0].results;
+	const crash = "0123456789abcdef";
+	try {
+		assert.equal(wranglerRun("d1", "migrations", "apply", "purr-online").status, 0);
+		query(`INSERT INTO crash_groups (game, signature, title, count, first_version, last_version, first_seen_at, last_seen_at) VALUES ('g', '${crash}', 'jump (res://player.gd:12)', 3, '1.0', '1.1', 1763000000, 1763100000);
+		       INSERT INTO crash_reports (id, game, signature, version, report, created_at) VALUES ('a', 'g', '${crash}', '1.0', 'the older one', 1763000000), ('b', 'g', '${crash}', '1.1', 'Engine: Purr\nthe newest one', 1763100000)`);
+
+		const listed = crashes();
+		assert.equal(listed.status, 0, listed.stderr);
+		assert.match(listed.stdout, /1\. jump \(res:\/\/player\.gd:12\)\n {5}3 reports from g; versions 1\.0 to 1\.1; last 2025-11-14 06:00; first 2025-11-13 02:13; 0123456789abcdef/);
+		const shown = crashes("show", crash).stdout;
+		assert.match(shown, /Report 1 of the 2 kept, sent 2025-11-14 06:00 from version 1\.1/);
+		assert.match(shown, /the newest one/);
+		const walked = spawnSync("node", ["scripts/crashes.mjs", "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify({ crash: ["1", ""], action: ["older", ""] }) } });
+		assert.equal(walked.status, 0, walked.stderr);
+		assert.match(walked.stdout, /the newest one[\s\S]*Report 2 of the 2 kept[\s\S]*the older one/);
+		assert.match(crashes("version", "1.0").stdout, /jump/);
+		assert.match(crashes("version", "9.9").stdout, /No crashes in version 9\.9/);
+		assert.match(crashes("show", "x' OR 1=1 --").stderr, /isn't a crash's ID/);
+		assert.match(crashes("version", "'; DROP TABLE crash_groups; --").stdout, /No crashes in version/);
+		assert.equal(crashes("delete", crash).status, 0);
+		assert.match(crashes().stdout, /No crashes have been reported/);
+		assert.equal(query("SELECT COUNT(*) AS n FROM crash_reports")[0].n, 0);
+	} finally {
+		rmSync(state, { recursive: true, force: true });
+	}
+});

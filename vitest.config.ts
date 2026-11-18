@@ -22,6 +22,7 @@ export default defineConfig(async () => {
 							versioned: { min_version: "1.2.0", max_version: "2.0" },
 							platform_only: { device_accounts: false },
 							open_relay: { turn_needs_platform: false },
+							no_crashes: { crash_reports: false },
 						},
 						// A TURN server of the operator's own, so tests can tell who gets TURN.
 						TURN_SERVERS: JSON.stringify([{ urls: "turn:turn.example.com:3478", username: "test", credential: "test" }]),

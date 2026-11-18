@@ -1,9 +1,10 @@
 // The daily cleanup (a Cron Trigger): lapsed device grants, accounts unused for
 // INACTIVE_ACCOUNT_DAYS (with their saves), accounts left with neither identity nor grant,
-// spent email codes and reports older than 90 days. Discarded saves are deleted by the R2 lifecycle rule on discarded/ instead.
+// spent email codes, and players' and crash reports older than 90 days. Discarded saves are deleted by the R2 lifecycle rule on discarded/ instead.
 
 import type { Env } from "./env";
 import { deleteAccount } from "./accounts";
+import { CRASH_REPORT_DAYS } from "./crash_reports";
 import { now, DAY } from "./time";
 
 // Accounts deleted per run at most: each deletion lists and deletes its saves, and a run that ran
@@ -16,6 +17,9 @@ export async function cleanUp(env: Env): Promise<{ grants: number; accounts: num
 	const codes = await env.DB.prepare("DELETE FROM email_codes WHERE expires_at <= ?").bind(time).run();
 	// Reports are for the operator to act on soon; after 90 days they go.
 	await env.DB.prepare("DELETE FROM reports WHERE created_at < ?").bind(time - 90 * DAY).run();
+	// Crash reports, and crashes nobody has had for as long.
+	await env.DB.prepare("DELETE FROM crash_reports WHERE created_at < ?").bind(time - CRASH_REPORT_DAYS * DAY).run();
+	await env.DB.prepare("DELETE FROM crash_groups WHERE last_seen_at < ?").bind(time - CRASH_REPORT_DAYS * DAY).run();
 	// Removals for cheating only count within AUTO_BAN's window.
 	await env.DB.prepare("DELETE FROM cheat_kicks WHERE at < ?").bind(time - (env.AUTO_BAN?.within_days ?? 0) * DAY).run();
 	// Bans kept from deleted accounts, once they've ended.
