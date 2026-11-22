@@ -22,7 +22,7 @@
     "reflect-metadata": "^0.2.2",
     "typescript": "^7.0.2",
     "vitest": "^5.1.1",
-    "wrangler": "^4.162.0"
+    "wrangler": "^4.165.0"
   },
   "dependencies": {
     "@peculiar/asn1-schema": "^3.0.0",
