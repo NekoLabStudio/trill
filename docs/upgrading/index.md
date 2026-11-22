@@ -7,3 +7,4 @@ To upgrade an instance, run `npm run update` in its folder (see [Updating](../up
 ## Versions
 
 <!-- newest-first: the docs site build regenerates this list -->
+- [Trill 0.1.0](/upgrading/0.1.0/)
