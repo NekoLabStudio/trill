@@ -23,6 +23,9 @@ export default defineConfig(async () => {
 							platform_only: { device_accounts: false },
 							open_relay: { turn_needs_platform: false },
 							no_crashes: { crash_reports: false },
+							// Ownership checked where the copy can show it, and required of everyone.
+							checked: { check_ownership: true, steam_app_id: 480, bundle_ids: ["com.example.checked"] },
+							required: { check_ownership: true, other_stores: false, steam_app_id: 480, extra_steam_app_ids: [481], bundle_ids: ["com.example.required"], play_package: "com.example.required" },
 						},
 						// A TURN server of the operator's own, so tests can tell who gets TURN.
 						TURN_SERVERS: JSON.stringify([{ urls: "turn:turn.example.com:3478", username: "test", credential: "test" }]),

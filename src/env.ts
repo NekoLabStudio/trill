@@ -23,9 +23,22 @@ export interface GameSettings {
 	// Whether those players are also removed from the lobby, as if the host kicked them (false
 	// unless set to true).
 	kick_cheaters?: boolean;
-	// Whether players without a platform sign-in get an account for their device (true unless set
-	// to false). A game that only ships where Steam, Game Center or Play Games signs players in can
-	// turn them off, so nobody can make accounts for it with a single request.
+	// Whether players must own the game to play online (false unless set to true): see
+	// ownership.ts. Checked at every sign-in, from the copy's proof of purchase.
+	check_ownership?: boolean;
+	// Whether the game is also sold where Purr can't check a purchase (itch.io, GOG, a DRM-free
+	// build; true unless set to false). With check_ownership on and this false, every account must
+	// show it owns the game, so device and email accounts need a store's copy too.
+	other_stores?: boolean;
+	// Whether test builds count as owning the game: TestFlight's (true unless set to false).
+	test_builds?: boolean;
+	// The game's other Steam app IDs whose players count as owning it (a Playtest).
+	extra_steam_app_ids?: number[];
+	// The game's Android package name, which Play Integrity tokens name (needed to check
+	// ownership on Google Play).
+	play_package?: string;
+	// Deprecated (replaced by other_stores with check_ownership; read until the next release):
+	// false turned off accounts for players without a platform sign-in.
 	device_accounts?: boolean;
 	// Whether only players signed in through Steam, Game Center or Play Games get TURN credentials
 	// (true unless set to false). Those sign-ins are verified by the platform, so nobody can make
@@ -72,6 +85,8 @@ export interface Env {
 	MAX_SAVE_SLOTS: number;
 	// Crash reports' bytes kept in full for each game a day (DEFAULT_MAX_CRASH_REPORT_BYTES_PER_DAY unless set).
 	MAX_CRASH_REPORT_BYTES_PER_DAY?: number;
+	// TURN credentials one account can get a day (DEFAULT_DAILY_CREDENTIALS unless set).
+	TURN_DAILY_CREDENTIALS?: number;
 	IDENTITY_KEY_VERSION: number;
 
 	// Secrets.
@@ -84,6 +99,11 @@ export interface Env {
 	TURN_KEY_ID?: string;
 	TURN_KEY_API_TOKEN?: string;
 	TURN_SERVERS?: string;
+	// coturn's shared secret (use-auth-secret): TURN_SERVERS then get credentials made for each
+	// player, which end after a few hours, instead of fixed ones.
+	TURN_SECRET?: string;
+	// The JSON key of the Google Cloud service account that decodes Play Integrity tokens.
+	PLAY_INTEGRITY_SERVICE_ACCOUNT?: string;
 }
 
 export interface ReportRule {

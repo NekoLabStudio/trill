@@ -116,6 +116,10 @@ test("configure, in a dry run with scripted answers, shows and makes the changes
 		const out = result.stdout;
 		assert.match(out, /night-drive: Steam App ID: 4242/);
 		assert.match(out, /night-drive: Apple bundle IDs: com\.example\.night/);
+		// A new game only plays online for players who bought it, and being on Steam and the App
+		// Store alone, every account must show it.
+		assert.match(out, /night-drive: only players who bought it play online: true/);
+		assert.match(out, /night-drive: also sold where purchases can't be checked: false/);
 		assert.match(out, /Email sent with: smtp2go/);
 		assert.match(out, /Cloudflare's email binding: removed/);
 		assert.match(out, /New device accounts a minute, per connection: 3/);

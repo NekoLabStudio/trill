@@ -26,6 +26,11 @@ export async function cleanUp(env: Env): Promise<{ grants: number; accounts: num
 	await env.DB.prepare("DELETE FROM banned_identities WHERE banned_until <= ?").bind(time).run();
 	// An address's counts, once its day is over (kept until then, as they still limit it).
 	await env.DB.prepare("DELETE FROM email_limits WHERE day_started_at <= ?1 AND last_sent_at <= ?1").bind(time - DAY).run();
+	// Ownership proven long ago no longer counts (ownership.ts) and is proven again at sign-in.
+	await env.DB.prepare("DELETE FROM ownership WHERE checked_at < ?").bind(time - 30 * DAY).run();
+	await env.DB.prepare("DELETE FROM ownership_proofs WHERE seen_at < ?").bind(time - 30 * DAY).run();
+	await env.DB.prepare("DELETE FROM ownership_challenges WHERE expires_at < ?").bind(time).run();
+	await env.DB.prepare("DELETE FROM turn_credentials WHERE day_started_at < ?").bind(time - DAY).run();
 
 	const expired = await env.DB.prepare(
 		`SELECT id FROM accounts

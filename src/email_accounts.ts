@@ -11,6 +11,7 @@ import { createAccount, findAccount, type Account } from "./accounts";
 import { verifyEmailCode, normaliseEmail } from "./email_codes";
 import { HttpError, optionalString, requireString } from "./http";
 import { addIdentity, findIdentityAccount, identityHash, listProviders, requireGame, restoreBan } from "./identities";
+import { ownershipAfterSignIn, ownershipBeforeSignIn } from "./ownership";
 import { deleteAllSaves } from "./saves";
 import { authenticate, createGrant, createSession } from "./sessions";
 
@@ -57,7 +58,16 @@ export async function verifyEmail(env: Env, request: Request, body: Record<strin
 	const email = await verifyEmailCode(env, request, body.email, body.challenge, body.code, "sign_in");
 
 	if (!caller) {
+		// The game may only play online for players who bought it: the copy's proof comes along.
+		// (Clients from before ownership checks don't say which game; its other routes still check.)
+		const game = optionalString(body, "game", MAX_NAME);
+		const settings = game ? requireGame(env, game) : null;
+		const existing = settings ? await findIdentityAccount(env, "email", email) : null;
+		const ownership = settings ? await ownershipBeforeSignIn(env, game, settings, existing?.id ?? null, body.ownership) : null;
 		const { account, created } = await accountForEmail(env, email, displayName);
+		if (settings) {
+			await ownershipAfterSignIn(env, game, account.id, ownership);
+		}
 		return session(env, account, created);
 	}
 
@@ -119,6 +129,11 @@ export async function verifyEmail(env: Env, request: Request, body: Record<strin
 		env.DB.prepare("INSERT OR IGNORE INTO blocks (account_id, blocked_id, created_at) SELECT ?1, blocked_id, created_at FROM blocks WHERE account_id = ?2 AND blocked_id != ?1").bind(to, from),
 		env.DB.prepare("INSERT OR IGNORE INTO blocks (account_id, blocked_id, created_at) SELECT account_id, ?1, created_at FROM blocks WHERE blocked_id = ?2 AND account_id != ?1").bind(to, from),
 		env.DB.prepare("INSERT OR IGNORE INTO ratings (account_id, game, mode, rating, matches) SELECT ?1, game, mode, rating, matches FROM ratings WHERE account_id = ?2").bind(to, from),
+		// Games the caller's account showed it owns: the joined account owns them too.
+		env.DB.prepare(
+			"INSERT INTO ownership (account_id, game, source, checked_at) SELECT ?1, game, source, checked_at FROM ownership WHERE account_id = ?2 ON CONFLICT DO UPDATE SET source = excluded.source, checked_at = MAX(checked_at, excluded.checked_at)",
+		).bind(to, from),
+		env.DB.prepare("UPDATE OR IGNORE ownership_proofs SET account_id = ?1 WHERE account_id = ?2").bind(to, from),
 		env.DB.prepare("DELETE FROM accounts WHERE id = ?").bind(from),
 	]);
 	await deleteAllSaves(env, caller.accountId);

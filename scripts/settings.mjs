@@ -187,12 +187,13 @@ export function slug(textValue) {
 
 // Games.
 
-const GAME_DEFAULTS = { ranked_agreement: "majority", report_failed_checks: true, kick_cheaters: false, device_accounts: true, turn_needs_platform: true };
+const GAME_DEFAULTS = { ranked_agreement: "majority", report_failed_checks: true, kick_cheaters: false, device_accounts: true, turn_needs_platform: true, check_ownership: false, other_stores: true, test_builds: true };
 const REPORT_REASONS = ["cheating", "abuse", "name", "other"];
 
 export function editGame(changes, id, { more = true } = {}) {
 	const games = ["vars", "GAMES"];
-	if (!changes.get([...games, id])) {
+	const isNew = !changes.get([...games, id]);
+	if (isNew) {
 		changes.set([...games, id], {}, id);
 	}
 	const game = () => changes.get([...games, id]) ?? {};
@@ -213,7 +214,21 @@ export function editGame(changes, id, { more = true } = {}) {
 		playGamesClients(changes);
 	}
 
-	if (!more || !confirm("game_more", `${id}: change its other settings (versions, save limits, ranked play, checks, accounts, TURN)?`, false)) {
+	// Only players who bought the game play online: new games start with it on. Who has to show
+	// it depends on where the game is sold.
+	const checking = confirm("check_ownership", `${id}: only let players who bought the game play online?`, game().check_ownership ?? isNew);
+	setting("check_ownership", "only players who bought it play online", checking);
+	if (checking) {
+		const onPlatforms = Boolean(game().steam_app_id || game().bundle_ids?.length || game().play_games);
+		const onlyThere = confirm("only_stores", `${id}: is it only sold on Steam, the App Store and Google Play (not itch.io, GOG or a DRM-free build)?`, game().other_stores === undefined ? onPlatforms : game().other_stores === false);
+		setting("other_stores", "also sold where purchases can't be checked", !onlyThere);
+		if (playGames) {
+			setting("play_package", "Android package name", text("play_package", `${id}: its Android package name, for checking Google Play purchases`, game().play_package ?? ""));
+			secret(changes, "PLAY_INTEGRITY_SERVICE_ACCOUNT", "play_integrity_service_account", "The JSON key of a service account in the Google Cloud project linked to the game, with the Play Integrity API on (one line)");
+		}
+	}
+
+	if (!more || !confirm("game_more", `${id}: change its other settings (versions, save limits, ranked play, checks, test builds, TURN)?`, false)) {
 		return;
 	}
 	setting("min_version", "oldest version that plays online", text("min_version", `${id}: the oldest game version that may play online (empty for any)`, game().min_version));
@@ -223,7 +238,12 @@ export function editGame(changes, id, { more = true } = {}) {
 	setting("ranked_agreement", "ranked results agreed by", choice("ranked_agreement", `${id}: whose reports make a ranked result count`, ["majority", "all", "host"], game().ranked_agreement ?? "majority"));
 	setting("report_failed_checks", "report failed checks", confirm("report_failed_checks", `${id}: report players who fail a check or are flagged?`, game().report_failed_checks ?? true));
 	setting("kick_cheaters", "remove cheaters", confirm("kick_cheaters", `${id}: also remove them from the lobby?`, game().kick_cheaters ?? false));
-	setting("device_accounts", "device accounts", confirm("device_accounts", `${id}: give players without a platform sign-in an account for their device?`, game().device_accounts ?? true));
+	if (game().steam_app_id) {
+		setting("extra_steam_app_ids", "other Steam app IDs that count as owning it", list("extra_steam_app_ids", `${id}: other Steam app IDs whose players count as owning it, such as a Playtest (comma-separated, empty if none)`, (game().extra_steam_app_ids ?? []).map(String)).map(Number).filter((each) => Number.isInteger(each) && each > 0));
+	}
+	if (game().check_ownership) {
+		setting("test_builds", "test builds count as owning it", confirm("test_builds", `${id}: let test builds (TestFlight) play online as if bought?`, game().test_builds ?? true));
+	}
 	setting("turn_needs_platform", "TURN only for platform players", confirm("turn_needs_platform", `${id}: TURN only for players signed in through Steam, Game Center or Play Games?`, game().turn_needs_platform ?? true));
 }
 
@@ -301,6 +321,7 @@ export function editTurn(changes) {
 		secret(changes, "TURN_KEY_ID", "turn_key_id", "Cloudflare TURN key ID");
 		secret(changes, "TURN_KEY_API_TOKEN", "turn_key_api_token", "Cloudflare TURN key API token");
 		changes.dropSecret("TURN_SERVERS");
+		changes.dropSecret("TURN_SECRET");
 	} else if (kind === "own") {
 		for (;;) {
 			const answer = ask("turn_servers", `Your TURN servers, as a JSON array${changes.hasSecret("TURN_SERVERS") ? " (set; Enter keeps it)" : ""}`);
@@ -317,10 +338,13 @@ export function editTurn(changes) {
 			}
 			invalid('That needs to be a JSON array, such as [{"urls": "turn:turn.example.com:3478", "username": "u", "credential": "c"}].');
 		}
+		say("With coturn's shared secret (use-auth-secret), each player gets credentials of their own that end");
+		say("after a few hours, instead of the fixed ones in that list.");
+		secret(changes, "TURN_SECRET", "turn_secret", "coturn's shared secret");
 		changes.dropSecret("TURN_KEY_ID");
 		changes.dropSecret("TURN_KEY_API_TOKEN");
 	} else {
-		for (const name of ["TURN_KEY_ID", "TURN_KEY_API_TOKEN", "TURN_SERVERS"]) {
+		for (const name of ["TURN_KEY_ID", "TURN_KEY_API_TOKEN", "TURN_SERVERS", "TURN_SECRET"]) {
 			changes.dropSecret(name);
 		}
 	}

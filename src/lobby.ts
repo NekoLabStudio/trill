@@ -4,7 +4,12 @@
 // ID, as Godot's WebRTCMultiplayerPeer expects.
 //
 // Messages, as JSON text:
-//   to a player as they join  {"type": "welcome", "peer_id": n, "members": [{"peer_id", "display_name"}], "ranked": bool}
+//   to a player as they join  {"type": "welcome", "peer_id": n, "members": [{"peer_id", "display_name"}], "ranked": bool,
+//                             "ice_servers": [...], "ice_expires_in": seconds (0: they don't end)}
+//   from a player             {"type": "renew_ice"}: their TURN credentials are ending; they get
+//                             {"type": "ice_servers", "ice_servers": [...], "ice_expires_in": seconds}
+//                             (at most every RENEW_INTERVAL_MS). A player's credentials are revoked
+//                             when they leave.
 //   to the others             {"type": "joined", "peer_id": n, "display_name": "..."}
 //                             {"type": "left", "peer_id": n}
 //   from a player             {"type": "signal", "to": n, "data": ...}
@@ -38,7 +43,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import { block, recordCheatKick, report } from "./moderation";
 import { recordResult } from "./ratings";
-import { STUN_ONLY, iceServers } from "./turn";
+import { STUN_ONLY, iceServers, revokeCredentials, type IceServers } from "./turn";
 
 export const MAX_MEMBERS = 8;
 const MAX_MESSAGE_BYTES = 16 * 1024;
@@ -50,6 +55,10 @@ const MESSAGE_BUDGET = 200;
 const MESSAGE_WINDOW_MS = 10_000;
 // A lobby nobody joins within this long is cleared.
 const UNUSED_LIFETIME_MS = 10 * 60 * 1000;
+// A player renews their TURN credentials once they near their end, never more often than this.
+const RENEW_INTERVAL_MS = 30 * 60 * 1000;
+// The Cloudflare usernames kept for a player, newest last (older ones have ended by then).
+const MAX_TURN_USERNAMES = 3;
 
 interface Member {
 	peer_id: number;
@@ -60,8 +69,16 @@ interface Member {
 	sent: number;
 	// Kicked: closed by the lobby, no longer a member.
 	gone?: boolean;
+	// Joining: holds a place (counted against the lobby's limits) but isn't seen by the others, nor
+	// sees them, until its welcome is sent.
+	pending?: boolean;
 	// When they joined: the longest here becomes host if the host leaves.
 	joined_at: number;
+	// Whether they get TURN credentials, which ones (Cloudflare's usernames, revoked when they
+	// leave), and when they last got some.
+	turn: boolean;
+	turn_usernames: string[];
+	turn_at: number;
 }
 
 // Close code for a kicked player.
@@ -108,7 +125,7 @@ export class Lobby extends DurableObject<Env> {
 		if (request.headers.get("x-game") !== game) {
 			return new Response("No such lobby.", { status: 404 });
 		}
-		const members = this.members();
+		const members = this.seats();
 		if (members.length >= MAX_MEMBERS) {
 			return new Response("The lobby is full.", { status: 409 });
 		}
@@ -123,6 +140,7 @@ export class Lobby extends DurableObject<Env> {
 			return new Response("Not allowed in this lobby.", { status: 403 });
 		}
 		const displayName = decodeURIComponent(request.headers.get("x-display-name") ?? "");
+		const turn = request.headers.get("x-turn") === "1";
 		const member: Member = {
 			peer_id: this.newPeerId(accountId === host, members),
 			account_id: accountId,
@@ -130,26 +148,62 @@ export class Lobby extends DurableObject<Env> {
 			window_started: Date.now(),
 			sent: 0,
 			joined_at: Date.now(),
+			turn,
+			turn_usernames: [],
+			turn_at: Date.now(),
+			pending: true,
 		};
 
+		// The player takes their place before anything is awaited, so joins at the same moment are
+		// checked against each other (D1 and fetch let other requests in while they wait).
 		const [client, server] = Object.values(new WebSocketPair());
 		this.ctx.acceptWebSocket(server);
 		server.serializeAttachment(member);
 		const ranked = Boolean(await this.ctx.storage.get<string>("mode"));
-		server.send(JSON.stringify({ type: "welcome", peer_id: member.peer_id, members: members.map(publicMember), ranked, ice_servers: request.headers.get("x-turn") === "1" ? await this.iceServers() : STUN_ONLY }));
-		this.broadcast({ type: "joined", ...publicMember(member) }, server);
+		const ice = turn ? await this.iceServers(accountId, request.headers.get("x-renews") === "1") : { servers: STUN_ONLY, usernames: [], expires_in: 0 };
+		const current = server.deserializeAttachment() as Member;
+		if (current.gone) {
+			this.ctx.waitUntil(revokeCredentials(this.env, ice.usernames));
+			return new Response(null, { status: 101, webSocket: client });
+		}
+		current.turn_usernames = ice.usernames;
+		current.pending = false;
+		server.serializeAttachment(current);
+		const others = this.members().filter((each) => each.peer_id !== current.peer_id);
+		server.send(JSON.stringify({ type: "welcome", peer_id: current.peer_id, members: others.map(publicMember), ranked, ice_servers: ice.servers, ice_expires_in: ice.expires_in }));
+		this.broadcast({ type: "joined", ...publicMember(current) }, server);
 		return new Response(null, { status: 101, webSocket: client });
 	}
 
-	// TURN credentials for a player joining; if the TURN service can't be reached, they still join
-	// and connect directly where they can.
-	private async iceServers(): Promise<unknown[]> {
+	// TURN credentials for a player joining or renewing; if the TURN service can't be reached, they
+	// still join and connect directly where they can.
+	private async iceServers(accountId: string, renews: boolean): Promise<IceServers> {
 		try {
-			return await iceServers(this.env);
+			return await iceServers(this.env, accountId, renews);
 		} catch {
-			console.error("Couldn't get TURN credentials for a player joining a lobby");
-			return STUN_ONLY;
+			console.error("Couldn't get TURN credentials for a player in a lobby");
+			return { servers: STUN_ONLY, usernames: [], expires_in: 0 };
 		}
+	}
+
+	// A player's credentials are ending: new ones, which their game moves its connections onto.
+	private async renewIce(socket: WebSocket, member: Member): Promise<void> {
+		if (!member.turn || Date.now() - member.turn_at < RENEW_INTERVAL_MS) {
+			return;
+		}
+		member.turn_at = Date.now();
+		socket.serializeAttachment(member);
+		const ice = await this.iceServers(member.account_id, true);
+		// The socket's attachment may have changed while waiting (a kick): read it again.
+		const current = socket.deserializeAttachment() as Member;
+		if (current.gone) {
+			this.ctx.waitUntil(revokeCredentials(this.env, ice.usernames));
+			return;
+		}
+		current.turn_usernames = [...current.turn_usernames, ...ice.usernames].slice(-MAX_TURN_USERNAMES);
+		current.turn_at = member.turn_at;
+		socket.serializeAttachment(current);
+		socket.send(JSON.stringify({ type: "ice_servers", ice_servers: ice.servers, ice_expires_in: ice.expires_in }));
 	}
 
 	async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -174,7 +228,7 @@ export class Lobby extends DurableObject<Env> {
 		} catch {
 			return;
 		}
-		if (sender.gone) {
+		if (sender.gone || sender.pending) {
 			return;
 		}
 		const isHost = sender.peer_id === 1;
@@ -196,6 +250,8 @@ export class Lobby extends DurableObject<Env> {
 			await this.submitCheck(sender, game, parsed.name, parsed.value);
 		} else if (parsed.type === "flag" && targetMember && typeof parsed.reason === "string") {
 			await this.flag(sender, targetMember, game, parsed.reason);
+		} else if (parsed.type === "renew_ice") {
+			await this.renewIce(socket, sender);
 		}
 	}
 
@@ -215,7 +271,9 @@ export class Lobby extends DurableObject<Env> {
 				socket.serializeAttachment(each);
 				socket.send(JSON.stringify({ type: "kicked" }));
 				socket.close(KICKED, byLobby ? "Removed for cheating." : "Removed by the host.");
-				this.broadcast({ type: "left", peer_id: each.peer_id }, socket);
+				if (!each.pending) {
+					this.broadcast({ type: "left", peer_id: each.peer_id }, socket);
+				}
 				hostRemoved ||= each.peer_id === 1;
 			}
 		}
@@ -383,7 +441,17 @@ export class Lobby extends DurableObject<Env> {
 
 	private async leave(socket: WebSocket): Promise<void> {
 		const member = socket.deserializeAttachment() as Member;
-		if (!member.gone) {
+		// The others drop this player's connections now anyway: their TURN credentials go too.
+		if (member.turn_usernames?.length) {
+			this.ctx.waitUntil(revokeCredentials(this.env, member.turn_usernames));
+			member.turn_usernames = [];
+			socket.serializeAttachment(member);
+		}
+		if (!member.gone && member.pending) {
+			// Left while joining: the others never saw them.
+			member.gone = true;
+			socket.serializeAttachment(member);
+		} else if (!member.gone) {
 			member.gone = true;
 			socket.serializeAttachment(member);
 			this.broadcast({ type: "left", peer_id: member.peer_id }, socket);
@@ -403,7 +471,10 @@ export class Lobby extends DurableObject<Env> {
 	private async promoteHost(): Promise<void> {
 		const remaining = this.ctx
 			.getWebSockets()
-			.filter((socket) => !(socket.deserializeAttachment() as Member).gone)
+			.filter((socket) => {
+				const member = socket.deserializeAttachment() as Member;
+				return !member.gone && !member.pending;
+			})
 			.sort((a, b) => (a.deserializeAttachment() as Member).joined_at - (b.deserializeAttachment() as Member).joined_at);
 		if (remaining.length === 0) {
 			return;
@@ -419,7 +490,13 @@ export class Lobby extends DurableObject<Env> {
 		}
 	}
 
+	// The players in the lobby, who see each other.
 	private members(): Member[] {
+		return this.seats().filter((member) => !member.pending);
+	}
+
+	// Everyone holding a place, players still joining too: what the lobby's limits count.
+	private seats(): Member[] {
 		return this.ctx
 			.getWebSockets()
 			.map((socket) => socket.deserializeAttachment() as Member)
@@ -429,7 +506,7 @@ export class Lobby extends DurableObject<Env> {
 	private socketOf(peerId: number): WebSocket | null {
 		for (const socket of this.ctx.getWebSockets()) {
 			const member = socket.deserializeAttachment() as Member;
-			if (member.peer_id === peerId && !member.gone) {
+			if (member.peer_id === peerId && !member.gone && !member.pending) {
 				return socket;
 			}
 		}
@@ -450,7 +527,8 @@ export class Lobby extends DurableObject<Env> {
 	private broadcastAll(message: unknown): void {
 		const text = JSON.stringify(message);
 		for (const socket of this.ctx.getWebSockets()) {
-			if (!(socket.deserializeAttachment() as Member).gone) {
+			const member = socket.deserializeAttachment() as Member;
+			if (!member.gone && !member.pending) {
 				socket.send(text);
 			}
 		}
@@ -459,7 +537,8 @@ export class Lobby extends DurableObject<Env> {
 	private broadcast(message: unknown, except: WebSocket): void {
 		const text = JSON.stringify(message);
 		for (const socket of this.ctx.getWebSockets()) {
-			if (socket !== except && !(socket.deserializeAttachment() as Member).gone) {
+			const member = socket.deserializeAttachment() as Member;
+			if (socket !== except && !member.gone && !member.pending) {
 				socket.send(text);
 			}
 		}

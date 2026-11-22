@@ -2,7 +2,7 @@
 // cross-progression saves, linking platforms by email, local players and lobbies. Every route is
 // listed here; the protocol is in README.md.
 
-import type { Env } from "./env";
+import type { Env, GameSettings } from "./env";
 import { DEFAULT_NAME, chooseDisplayName, deleteAccount, findAccount } from "./accounts";
 import { cleanUp } from "./cleanup";
 import { receiveCrashReport } from "./crash_reports";
@@ -21,6 +21,7 @@ import { verifySteamTicket } from "./providers/steam";
 import { checkName, listSaves, readSave, writeSave } from "./saves";
 import { authenticate, authenticateAccount, createSession, type Caller } from "./sessions";
 import { checkClientVersion } from "./client_versions";
+import { createChallenge, ownershipAfterSignIn, ownershipBeforeSignIn, ownsGame, requireOwner } from "./ownership";
 import { PROTOCOL, SERVICE_VERSION } from "./version";
 import { randomCode, normaliseCode } from "./crypto";
 
@@ -88,6 +89,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 		return json(await verifyEmail(env, request, await readJson(request)));
 	}
 
+	// A challenge for a proof of purchase bound to one request (Play Integrity).
+	if (method === "GET" && at("ownership", "challenge")) {
+		const game = url.searchParams.get("game") ?? "";
+		requireGame(env, game);
+		return json(await createChallenge(env, game));
+	}
+
 	// Signing in with a platform.
 	if (method === "POST" && at("auth", "*")) {
 		return json(await signIn(request, env, path[1]));
@@ -111,14 +119,20 @@ async function route(request: Request, env: Env): Promise<Response> {
 
 	// Local players: a guest bringing their profile with their email, and remembered guests.
 	if (method === "POST" && at("guest", "email", "start")) {
-		// Only a signed-in host asks for a guest's code, and that code can't sign in.
-		await authenticateAccount(env, request);
+		// Only a signed-in host asks for a guest's code, and that code can't sign in. Guests play on
+		// the host's copy, so where the game must be owned, the host must own it.
+		const host = await authenticateAccount(env, request);
 		const body = await readJson(request);
-		return json(await startEmail(env, request, body.email, requireString(body, "game", MAX_NAME), "guest"));
+		const game = requireString(body, "game", MAX_NAME);
+		await requireOwner(env, game, requireGame(env, game), host);
+		return json(await startEmail(env, request, body.email, game, "guest"));
 	}
 	if (method === "POST" && at("guest", "email", "verify")) {
 		const host = await authenticateAccount(env, request);
-		return json(await verifyGuestEmail(env, request, host, await readJson(request)));
+		const body = await readJson(request);
+		const game = requireString(body, "game", MAX_NAME);
+		await requireOwner(env, game, requireGame(env, game), host);
+		return json(await verifyGuestEmail(env, request, host, body));
 	}
 	if (method === "GET" && at("grants")) {
 		return json(await listGrants(env, await authenticateAccount(env, request)));
@@ -133,14 +147,12 @@ async function route(request: Request, env: Env): Promise<Response> {
 	// Saves (guest tokens and device grants may use these).
 	if (method === "GET" && at("saves", "*")) {
 		const game = checkName("game", path[1]);
-		requireGame(env, game);
-		const caller = await authenticateSaves(env, request, game);
+		const caller = await authenticateSaves(env, request, game, requireGame(env, game));
 		return json({ saves: await listSaves(env, caller.accountId, game) });
 	}
 	if (method === "GET" && at("saves", "*", "*")) {
 		const game = checkName("game", path[1]);
-		requireGame(env, game);
-		const caller = await authenticateSaves(env, request, game);
+		const caller = await authenticateSaves(env, request, game, requireGame(env, game));
 		const save = await readSave(env, caller.accountId, game, checkName("slot", path[2]));
 		if (!save) {
 			throw new HttpError(404, "no_save", "There's no save in that slot.");
@@ -156,7 +168,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 	if (method === "PUT" && at("saves", "*", "*")) {
 		const game = checkName("game", path[1]);
 		const settings = requireGame(env, game);
-		const caller = await authenticateSaves(env, request, game);
+		const caller = await authenticateSaves(env, request, game, settings);
 		const replaces = Number(request.headers.get("x-save-version") ?? "NaN");
 		if (!Number.isInteger(replaces) || replaces < 0) {
 			throw new HttpError(400, "bad_request", "X-Save-Version must be the version this save replaces (0 for a new slot).");
@@ -187,7 +199,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 		await limitAccount(env.LOBBY_LIMITER, caller, "Too many lobbies; try again in a minute.");
 		await requireNotBanned(env, caller.accountId);
 		const game = requireString(await readJson(request), "game", MAX_NAME);
-		requireGame(env, game);
+		await requireOwner(env, game, requireGame(env, game), caller);
 		for (let attempt = 0; attempt < 5; attempt++) {
 			const code = randomCode();
 			if (await env.LOBBIES.getByName(code).create(game, caller.accountId)) {
@@ -209,6 +221,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 			throw new HttpError(404, "no_lobby", "No such lobby.");
 		}
 		await requireNotBanned(env, caller.accountId);
+		await requireOwner(env, game, settings, caller);
 		const account = await findAccount(env, caller.accountId);
 		// What the lobby trusts comes from here, never from the client's own headers.
 		const headers = new Headers(request.headers);
@@ -216,9 +229,12 @@ async function route(request: Request, env: Env): Promise<Response> {
 		headers.set("x-display-name", encodeURIComponent(account?.display_name || DEFAULT_NAME));
 		headers.set("x-game", game);
 		headers.set("x-blocked-by", (await blockedBy(env, caller.accountId)).join(","));
-		// TURN credentials only for players a platform vouched for, unless the game allows everyone.
+		// Games that renew TURN credentials say so, and get shorter ones.
+		headers.set("x-renews", url.searchParams.get("renews") === "1" ? "1" : "0");
+		// TURN credentials only for players a platform vouched for, or who showed they own the game,
+		// unless the game allows everyone.
 		const platform = (await listProviders(env, caller.accountId)).some((provider) => provider === "steam" || provider === "game_center" || provider === "play_games");
-		headers.set("x-turn", platform || settings.turn_needs_platform === false ? "1" : "0");
+		headers.set("x-turn", platform || settings.turn_needs_platform === false || (await ownsGame(env, caller.accountId, game)) ? "1" : "0");
 		return env.LOBBIES.getByName(code).fetch(new Request(request, { headers }));
 	}
 
@@ -228,7 +244,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 			throw new HttpError(426, "upgrade_required", "Connect with a WebSocket.");
 		}
 		const game = checkName("game", path[1]);
-		requireGame(env, game);
+		const settings = requireGame(env, game);
 		const mode = checkName("mode", path[2]);
 		const players = Number(url.searchParams.get("players") ?? "2");
 		if (!Number.isInteger(players) || players < 2 || players > MAX_MEMBERS) {
@@ -237,6 +253,7 @@ async function route(request: Request, env: Env): Promise<Response> {
 		const caller = await authenticateAccount(env, request);
 		await limitAccount(env.LOBBY_LIMITER, caller, "Too many lobbies; try again in a minute.");
 		await requireNotBanned(env, caller.accountId);
+		await requireOwner(env, game, settings, caller);
 		const headers = new Headers(request.headers);
 		headers.set("x-account-id", caller.accountId);
 		headers.set("x-rating", String((await ratingOf(env, caller.accountId, game, mode)).rating));
@@ -273,11 +290,12 @@ async function limitAccount(limiter: RateLimit, caller: Caller, message: string)
 
 // The caller of a saves request, for this game: guest tokens and grants reach only the game
 // they were given for. Limited per account and per connection.
-async function authenticateSaves(env: Env, request: Request, game: string): Promise<Caller> {
+async function authenticateSaves(env: Env, request: Request, game: string, settings: GameSettings): Promise<Caller> {
 	const caller = await authenticate(env, request);
 	if (caller.game && caller.game !== game) {
 		throw new HttpError(403, "forbidden", "This token is for another game's saves.");
 	}
+	await requireOwner(env, game, settings, caller);
 	await limitAccount(env.SAVE_LIMITER, caller, "Too many saves; try again in a minute.");
 	const { success } = await env.SAVE_LIMITER.limit({ key: `connection:${connectionKey(request)}` });
 	if (!success) {
@@ -294,10 +312,12 @@ async function signIn(request: Request, env: Env, provider: string) {
 	}
 	const body = await readJson(request);
 	const displayName = optionalString(body, "display_name", MAX_NAME);
+	const gameId = requireString(body, "game", MAX_NAME);
+	const game = requireGame(env, gameId);
 	let verified: { provider: Provider; id: string };
 
 	if (provider === "device") {
-		if (requireGame(env, requireString(body, "game", MAX_NAME)).device_accounts === false) {
+		if (game.device_accounts === false) {
 			throw new HttpError(403, "device_accounts_off", "This game only signs players in through their platform.");
 		}
 		// A random secret the device keeps; it's the device's identity.
@@ -313,13 +333,11 @@ async function signIn(request: Request, env: Env, provider: string) {
 			}
 		}
 	} else if (provider === "steam") {
-		const game = requireGame(env, requireString(body, "game", MAX_NAME));
 		if (!game.steam_app_id) {
 			throw new HttpError(501, "not_configured", "Steam sign-in isn't set up for this game (steam_app_id).");
 		}
-		verified = { provider: "steam", id: await verifySteamTicket(env.STEAM_WEB_API_KEY, game.steam_app_id, requireString(body, "ticket")) };
+		verified = { provider: "steam", id: await verifySteamTicket(env.STEAM_WEB_API_KEY, [game.steam_app_id, ...(game.extra_steam_app_ids ?? [])], requireString(body, "ticket")) };
 	} else if (provider === "game_center") {
-		const game = requireGame(env, requireString(body, "game", MAX_NAME));
 		const id = await verifyGameCenter(
 			{
 				publicKeyUrl: requireString(body, "public_key_url", 512),
@@ -333,8 +351,6 @@ async function signIn(request: Request, env: Env, provider: string) {
 		);
 		verified = { provider: "game_center", id };
 	} else if (provider === "play_games") {
-		const gameId = requireString(body, "game", MAX_NAME);
-		const game = requireGame(env, gameId);
 		if (!game.play_games) {
 			throw new HttpError(501, "not_configured", "Google Play Games sign-in isn't set up for this game.");
 		}
@@ -343,7 +359,12 @@ async function signIn(request: Request, env: Env, provider: string) {
 		throw new HttpError(404, "unknown_provider", `No sign-in with "${provider}".`);
 	}
 
+	// The game may only play online for players who bought it: their copy's proof comes with the
+	// sign-in (Steam's is the ticket itself).
+	const existing = await findIdentityAccount(env, verified.provider, verified.id);
+	const ownership = await ownershipBeforeSignIn(env, gameId, game, existing?.id ?? null, body.ownership, verified.provider === "steam" ? verified.id : null);
 	const { account, created } = await signInWithIdentity(env, verified.provider, verified.id, displayName);
+	await ownershipAfterSignIn(env, gameId, account.id, ownership);
 	return {
 		account_id: account.id,
 		display_name: account.display_name,

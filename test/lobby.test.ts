@@ -22,7 +22,7 @@ describe("lobbies", () => {
 		expect(lobby.code).toMatch(/^[0-9A-Z]{6}$/);
 
 		const a = await join(lobby.code, host.token);
-		expect(a.welcome).toEqual({ type: "welcome", peer_id: 1, members: [], ranked: false, ice_servers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
+		expect(a.welcome).toEqual({ type: "welcome", peer_id: 1, members: [], ranked: false, ice_servers: [{ urls: "stun:stun.cloudflare.com:3478" }], ice_expires_in: 0 });
 
 		const joined = nextMessage(a.socket);
 		const b = await join(lobby.code.toLowerCase(), friend.token);
