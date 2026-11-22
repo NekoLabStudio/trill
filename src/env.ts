@@ -26,7 +26,7 @@ export interface GameSettings {
 	// Whether players must own the game to play online (false unless set to true): see
 	// ownership.ts. Checked at every sign-in, from the copy's proof of purchase.
 	check_ownership?: boolean;
-	// Whether the game is also sold where Purr can't check a purchase (itch.io, GOG, a DRM-free
+	// Whether the game is also sold where Trill can't check a purchase (itch.io, GOG, a DRM-free
 	// build; true unless set to false). With check_ownership on and this false, every account must
 	// show it owns the game, so device and email accounts need a store's copy too.
 	other_stores?: boolean;

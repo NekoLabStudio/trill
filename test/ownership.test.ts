@@ -174,7 +174,7 @@ describe("ownership", () => {
 		const key = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
 		const pkcs8 = btoa(String.fromCharCode(...new Uint8Array((await crypto.subtle.exportKey("pkcs8", key.privateKey)) as ArrayBuffer)));
 		const env = testEnv as unknown as Record<string, unknown>;
-		env.PLAY_INTEGRITY_SERVICE_ACCOUNT = JSON.stringify({ client_email: "purr@example.iam.gserviceaccount.com", private_key: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n` });
+		env.PLAY_INTEGRITY_SERVICE_ACCOUNT = JSON.stringify({ client_email: "trill@example.iam.gserviceaccount.com", private_key: `-----BEGIN PRIVATE KEY-----\n${pkcs8}\n-----END PRIVATE KEY-----\n` });
 		const challenge = async () => (await callJson("GET", "/ownership/challenge?game=required")).body.challenge as string;
 		let current = await challenge();
 		const verdict = (licensing: string, requestHash?: string) =>

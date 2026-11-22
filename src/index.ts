@@ -1,4 +1,4 @@
-// Purr online services: accounts without stored emails, passwords or platform IDs,
+// Trill, online services for games: accounts without stored emails, passwords or platform IDs,
 // cross-progression saves, linking platforms by email, local players and lobbies. Every route is
 // listed here; the protocol is in README.md.
 
@@ -48,7 +48,7 @@ export default {
 		// Every answer says which protocol this service speaks, so clients can tell it's too old.
 		if (response.status !== 101) {
 			response = new Response(response.body, response);
-			response.headers.set("x-purr-protocol", String(PROTOCOL));
+			response.headers.set("x-trill-protocol", String(PROTOCOL));
 		}
 		return response;
 	},

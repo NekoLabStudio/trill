@@ -1,0 +1,109 @@
+name: Prepare release
+
+# The one-step release: run this workflow with a version (Actions > Prepare release > Run
+# workflow, or `gh workflow run prepare-release.yml -f version=X.Y.Z`). It tests main, waits
+# for a member of the trill team to approve, applies every release edit
+# (support/prepare-release.sh: VERSION.txt, src/version.ts and the upgrade notes), commits,
+# creates the tag on that commit and pushes both. The tag starts the Release workflow, which
+# packages the service and publishes it.
+#
+# The push uses the RELEASE_DEPLOY_KEY secret: a deploy key in the main ruleset's bypass list,
+# held by the `release` environment, whose branch policy allows only main. Deploy-key pushes
+# aren't GITHUB_TOKEN events, so the tag push starts the Release workflow by itself.
+#
+# Anyone with write access can start a release, but nothing is pushed until the trill team
+# approves the Approve release job (its `release-approval` environment has the team as
+# required reviewers and holds no secrets).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (MAJOR.MINOR.PATCH, no leading v)"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test main
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.checkout.outputs.commit }}
+    steps:
+      - name: Checkout main
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version
+        run: echo "${{ inputs.version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Test the service
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          npm test
+
+      - name: Build docs site
+        run: python3 docs-site/build.py --output dist/docs-site
+
+  approve:
+    name: Approve release
+    runs-on: ubuntu-latest
+    environment: release-approval
+    steps:
+      - name: Approved
+        run: echo "Release ${{ inputs.version }} approved."
+
+  tag:
+    name: Bump, tag and push
+    needs:
+      - test
+      - approve
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      - name: Refuse stale or duplicate releases
+        run: |
+          if [ "$(git rev-parse HEAD)" != "${{ needs.test.outputs.sha }}" ]; then
+            echo "main moved while the tests ran: run the workflow again"
+            exit 1
+          fi
+          if [ -n "$(git ls-remote --tags origin "refs/tags/v${{ inputs.version }}")" ]; then
+            echo "Tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Apply release edits
+        run: support/prepare-release.sh "${{ inputs.version }}"
+
+      - name: Commit, tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Release ${{ inputs.version }}"
+          git tag -a "v${{ inputs.version }}" -m "Trill ${{ inputs.version }}"
+          # main first, tag second: if the branch push is refused, no tag is left pointing at
+          # a commit main doesn't have. The tag push starts the Release workflow.
+          git push origin main
+          git push origin "v${{ inputs.version }}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Sets up an instance of Purr's online services on your Cloudflare account, from this folder:
+// Sets up an instance of Trill on your Cloudflare account, from this folder:
 // asks what it needs, creates the database and bucket, fills in wrangler.jsonc, applies the
 // migrations, deploys, stores the secrets and makes the folder a git repository.
 //
@@ -19,7 +19,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 async function main() {
 	requireInstanceFolder();
-	say("Purr online services setup");
+	say("Trill setup");
 	say(readVersion(".") ? `Version: ${readVersion(".")}` : "");
 	say();
 
@@ -34,7 +34,7 @@ async function main() {
 	// 2. What this instance is: its name, games, email and TURN (the same questions as `npm run
 	// configure`, which changes them later). Run again, setup shows the answers it had.
 	const changes = new Changes(readFileSync("wrangler.jsonc", "utf8"), secretNames());
-	const name = slug(ask("name", "A name for this instance (the Worker, database and bucket are named after it)", changes.get(["name"]))) || "purr-online";
+	const name = slug(ask("name", "A name for this instance (the Worker, database and bucket are named after it)", changes.get(["name"]))) || "trill";
 	// The release's example game makes way for the instance's own.
 	if (same(Object.keys(changes.get(["vars", "GAMES"]) ?? {}), ["example"])) {
 		changes.set(["vars", "GAMES"], {}, "Games");
@@ -50,7 +50,7 @@ async function main() {
 		editGame(changes, id, { more: false });
 	} while (!isScripted && confirm("more_games", "Add or change another game?", false));
 	const games = Object.keys(changes.get(["vars", "GAMES"]) ?? {});
-	editEmail(changes, `${changes.get(["vars", "GAMES", games[0], "name"]) ?? "Purr"} <noreply@example.com>`);
+	editEmail(changes, `${changes.get(["vars", "GAMES", games[0], "name"]) ?? "Trill"} <noreply@example.com>`);
 	editTurn(changes);
 
 	// 3. The database and the saves bucket. Wrangler is told not to add them to wrangler.jsonc
@@ -80,7 +80,7 @@ async function main() {
 	// 4. The settings. The release's own wrangler.jsonc is kept first, so updates can show what
 	// changes in it.
 	if (!existsSync(UPSTREAM_CONFIG) && !dryRun) {
-		mkdirSync(".purr-upstream", { recursive: true });
+		mkdirSync(".trill-upstream", { recursive: true });
 		copyFileSync("wrangler.jsonc", UPSTREAM_CONFIG);
 	}
 	changes.set(["name"], name, "Name");
@@ -120,7 +120,7 @@ async function main() {
 	if (!existsSync(".git") && confirm("git", "Make this folder a git repository, with a first commit?", true)) {
 		run(["git", "init", "-q"]);
 		run(["git", "add", "-A"]);
-		run(["git", "commit", "-q", "-m", `Purr online services ${readVersion(".") || ""}`.trim()]);
+		run(["git", "commit", "-q", "-m", `Trill ${readVersion(".") || ""}`.trim()]);
 		const hasGh = !dryRun && spawnSync("gh", ["--version"], { stdio: "ignore" }).status === 0;
 		if ((hasGh || dryRun) && confirm("github", `Create a private GitHub repository called ${name} and push to it?`, false)) {
 			run(["gh", "repo", "create", name, "--private", "--source", ".", "--push"]);
@@ -145,7 +145,7 @@ async function main() {
 		say("dashboard, if you haven't, and make sure the account is on Workers Paid.");
 	}
 	say();
-	say("Later, `npm run update` brings in Purr's newest release.");
+	say("Later, `npm run update` brings in Trill's newest release.");
 }
 
 start(main);

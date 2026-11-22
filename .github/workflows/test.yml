@@ -1,0 +1,50 @@
+name: Test
+
+# Runs on every pull request to main; the main ruleset requires these checks.
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  service:
+    name: Service
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Fails when a page is missing from the nav or a version set can't build.
+      - name: Build docs site
+        run: |
+          python3 docs-site/build.py --output dist/docs-site
+          # The setup command downloads this.
+          test -s dist/docs-site/setup.sh

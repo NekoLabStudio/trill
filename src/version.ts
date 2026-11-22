@@ -1,5 +1,5 @@
-// This service's version (Purr's, set by support/prepare-release.sh at each release) and its
-// protocol number, which goes up when a change means older Purr clients can't talk to it, or
-// Purr clients need a newer service. Purr checks the protocol on every response.
-export const SERVICE_VERSION = "0.3.0";
-export const PROTOCOL = 1;
+// This service's version (set by support/prepare-release.sh at each release) and its protocol
+// number, which goes up when a change means older clients can't talk to it, or clients need a
+// newer service. Clients check the protocol on every response (X-Trill-Protocol).
+export const SERVICE_VERSION = "1.0.0";
+export const PROTOCOL = 2;

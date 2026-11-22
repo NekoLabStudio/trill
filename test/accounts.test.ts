@@ -40,7 +40,7 @@ describe("signing in", () => {
 		const url = new URL(String(fetchSpy.mock.calls[0][0]));
 		expect(url.hostname).toBe("partner.steam-api.com");
 		expect(url.searchParams.get("appid")).toBe("480");
-		expect(url.searchParams.get("identity")).toBe("purr-online");
+		expect(url.searchParams.get("identity")).toBe("trill");
 		fetchSpy.mockRestore();
 
 		// Nothing in the database holds the raw ID.

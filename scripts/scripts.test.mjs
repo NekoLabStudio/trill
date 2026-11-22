@@ -53,13 +53,13 @@ test("only lists what still differs once everything is answered", () => {
 
 test("an update adds the release's new settings and keeps the instance's own", () => {
 	const before = `{
-	"name": "purr-online",
+	"name": "trill",
 	"ratelimits": [{ "name": "A_LIMITER", "simple": { "limit": 10, "period": 60 } }],
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }],
 	"vars": { "GAMES": { "example": {} }, "SESSION_DAYS": 30, "MAX_SAVE_SLOTS": 8, "AUTO_BAN": { "kicks": 3 }, "OLD_SETTING": 1 }
 }`;
 	const after = `{
-	"name": "purr-online",
+	"name": "trill",
 	"ratelimits": [{ "name": "A_LIMITER", "simple": { "limit": 10, "period": 60 } }, { "name": "B_LIMITER", "simple": { "limit": 5, "period": 60 } }],
 	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }, { "tag": "v2", "new_sqlite_classes": ["Party"] }],
 	"kv_namespaces": [{ "binding": "CACHE", "id": "x" }],
@@ -93,7 +93,7 @@ test("an update adds the release's new settings and keeps the instance's own", (
 });
 
 test("configure, in a dry run with scripted answers, shows and makes the changes", () => {
-	const copy = mkdtempSync(join(tmpdir(), "purr-configure-"));
+	const copy = mkdtempSync(join(tmpdir(), "trill-configure-"));
 	try {
 		for (const path of ["wrangler.jsonc", "src", "scripts", "package.json"]) {
 			cpSync(join(online, path), join(copy, path), { recursive: true });
@@ -111,7 +111,7 @@ test("configure, in a dry run with scripted answers, shows and makes the changes
 			smtp2go_api_key: "api-x",
 			rate_signup_limiter: "3",
 		};
-		const result = spawnSync("node", ["scripts/configure.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify(answers) } });
+		const result = spawnSync("node", ["scripts/configure.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, TRILL_SCRIPT_ANSWERS: JSON.stringify(answers) } });
 		assert.equal(result.status, 0, result.stderr);
 		const out = result.stdout;
 		assert.match(out, /night-drive: Steam App ID: 4242/);
@@ -135,9 +135,9 @@ test("configure, in a dry run with scripted answers, shows and makes the changes
 	}
 });
 
-test("an update replaces Purr's files and keeps the instance's own", () => {
-	const instance = mkdtempSync(join(tmpdir(), "purr-instance-"));
-	const release = mkdtempSync(join(tmpdir(), "purr-release-"));
+test("an update replaces Trill's files and keeps the instance's own", () => {
+	const instance = mkdtempSync(join(tmpdir(), "trill-instance-"));
+	const release = mkdtempSync(join(tmpdir(), "trill-release-"));
 	try {
 		mkdirSync(join(instance, "src/email-templates/custom"), { recursive: true });
 		writeFileSync(join(instance, "src/old.ts"), "old");
@@ -162,14 +162,14 @@ test("an update replaces Purr's files and keeps the instance's own", () => {
 });
 
 test("setup, in a dry run with scripted answers, runs the right commands", () => {
-	const copy = mkdtempSync(join(tmpdir(), "purr-setup-"));
+	const copy = mkdtempSync(join(tmpdir(), "trill-setup-"));
 	try {
 		for (const path of ["wrangler.jsonc", "src", "scripts", "package.json"]) {
 			cpSync(join(online, path), join(copy, path), { recursive: true });
 		}
 		symlinkSync(join(online, "node_modules"), join(copy, "node_modules"));
 		const answers = { name: "Studio Online", game_id: "night-drive", game_name: "Night Drive", steam_app_id: "4242", email_driver: "smtp2go", email_from: "Night Drive <hi@example.com>", smtp2go_api_key: "api-x", steam_web_api_key: "", turn_key_id: "", git: "n" };
-		const result = spawnSync("node", ["scripts/setup.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify(answers) } });
+		const result = spawnSync("node", ["scripts/setup.mjs", "--dry-run"], { cwd: copy, encoding: "utf8", env: { ...process.env, TRILL_SCRIPT_ANSWERS: JSON.stringify(answers) } });
 		assert.equal(result.status, 0, result.stderr);
 		const out = result.stdout;
 		assert.match(out, /would run: npx wrangler d1 create studio-online --update-config=false\n/);
@@ -187,14 +187,14 @@ test("setup, in a dry run with scripted answers, runs the right commands", () =>
 });
 
 test("moderate lists reported players and acts on them, on a local database", () => {
-	const state = mkdtempSync(join(tmpdir(), "purr-moderate-"));
+	const state = mkdtempSync(join(tmpdir(), "trill-moderate-"));
 	const wranglerRun = (...args) => spawnSync("npx", ["wrangler", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, CI: "1" } });
-	const moderate = (...args) => spawnSync("node", ["scripts/moderate.mjs", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: "{}" } });
-	const query = (sql) => JSON.parse(wranglerRun("d1", "execute", "purr-online", "--json", "--command", sql).stdout)[0].results;
+	const moderate = (...args) => spawnSync("node", ["scripts/moderate.mjs", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, TRILL_SCRIPT_ANSWERS: "{}" } });
+	const query = (sql) => JSON.parse(wranglerRun("d1", "execute", "trill", "--json", "--command", sql).stdout)[0].results;
 	const target = "11111111-1111-4111-8111-111111111111";
 	const reporter = "22222222-2222-4222-8222-222222222222";
 	try {
-		assert.equal(wranglerRun("d1", "migrations", "apply", "purr-online").status, 0);
+		assert.equal(wranglerRun("d1", "migrations", "apply", "trill").status, 0);
 		query(`INSERT INTO accounts (id, display_name, name_chosen, created_at, last_seen_at) VALUES ('${target}', 'Rude name', 1, 1, 1), ('${reporter}', 'Reporter', 0, 1, 1);
 		       INSERT INTO reports (id, game, reporter_id, reported_id, reason, details, created_at) VALUES ('r', 'g', '${reporter}', '${target}', 'name', 'not nice', 1763000000)`);
 
@@ -223,13 +223,13 @@ test("moderate lists reported players and acts on them, on a local database", ()
 });
 
 test("crashes lists crashes, shows their reports and forgets them, on a local database", () => {
-	const state = mkdtempSync(join(tmpdir(), "purr-crashes-"));
+	const state = mkdtempSync(join(tmpdir(), "trill-crashes-"));
 	const wranglerRun = (...args) => spawnSync("npx", ["wrangler", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, CI: "1" } });
-	const crashes = (...args) => spawnSync("node", ["scripts/crashes.mjs", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: "{}" } });
-	const query = (sql) => JSON.parse(wranglerRun("d1", "execute", "purr-online", "--json", "--command", sql).stdout)[0].results;
+	const crashes = (...args) => spawnSync("node", ["scripts/crashes.mjs", ...args, "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, TRILL_SCRIPT_ANSWERS: "{}" } });
+	const query = (sql) => JSON.parse(wranglerRun("d1", "execute", "trill", "--json", "--command", sql).stdout)[0].results;
 	const crash = "0123456789abcdef";
 	try {
-		assert.equal(wranglerRun("d1", "migrations", "apply", "purr-online").status, 0);
+		assert.equal(wranglerRun("d1", "migrations", "apply", "trill").status, 0);
 		query(`INSERT INTO crash_groups (game, signature, title, count, first_version, last_version, first_seen_at, last_seen_at) VALUES ('g', '${crash}', 'jump (res://player.gd:12)', 3, '1.0', '1.1', 1763000000, 1763100000);
 		       INSERT INTO crash_reports (id, game, signature, version, report, created_at) VALUES ('a', 'g', '${crash}', '1.0', 'the older one', 1763000000), ('b', 'g', '${crash}', '1.1', 'Engine: Purr\nthe newest one', 1763100000)`);
 
@@ -239,7 +239,7 @@ test("crashes lists crashes, shows their reports and forgets them, on a local da
 		const shown = crashes("show", crash).stdout;
 		assert.match(shown, /Report 1 of the 2 kept, sent 2025-11-14 06:00 from version 1\.1/);
 		assert.match(shown, /the newest one/);
-		const walked = spawnSync("node", ["scripts/crashes.mjs", "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, PURR_SCRIPT_ANSWERS: JSON.stringify({ crash: ["1", ""], action: ["older", ""] }) } });
+		const walked = spawnSync("node", ["scripts/crashes.mjs", "--local", "--persist-to", state], { cwd: online, encoding: "utf8", env: { ...process.env, TRILL_SCRIPT_ANSWERS: JSON.stringify({ crash: ["1", ""], action: ["older", ""] }) } });
 		assert.equal(walked.status, 0, walked.stderr);
 		assert.match(walked.stdout, /the newest one[\s\S]*Report 2 of the 2 kept[\s\S]*the older one/);
 		assert.match(crashes("version", "1.0").stdout, /jump/);

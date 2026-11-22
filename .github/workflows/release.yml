@@ -1,0 +1,86 @@
+# Publishes a Trill release for a vX.Y.Z tag. The Prepare release workflow creates the tag (on
+# the commit that sets VERSION.txt and rolls the upgrade notes), which starts this. A failure in
+# the code needs a fix on main and a new version: published tags never move.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  release:
+    name: Check and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches VERSION.txt
+        run: |
+          if ! echo "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Run this for a release tag (vX.Y.Z), not $GITHUB_REF_NAME."
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$(cat VERSION.txt)" != "$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match VERSION.txt ($(cat VERSION.txt))."
+            exit 1
+          fi
+          grep -q "SERVICE_VERSION = \"$VERSION\"" src/version.ts
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Test
+        run: |
+          npm ci --no-audit --no-fund
+          npx tsc --noEmit
+          npm test
+
+      # The description is the version's upgrade notes (with doc links pointing at the docs
+      # site), then GitHub's generated list of changes.
+      - name: Compose release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PAGE="docs/upgrading/${VERSION}.md"
+          {
+            echo "Upgrade notes: https://oss.nekolab.studio/trill/upgrading/${VERSION}/"
+            echo
+            if [ -f "$PAGE" ]; then
+              awk 'NR==1 && /^# /{next} {print}' "$PAGE" \
+                | sed -E 's|\]\((/[A-Za-z0-9._/#-]*)\)|](https://oss.nekolab.studio/trill\1)|g'
+              echo
+              echo "---"
+              echo
+            fi
+            gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" -f tag_name="$GITHUB_REF_NAME" --jq .body
+          } > release-notes.md
+
+      # The service on its own, for the setup and update scripts (which download the latest
+      # release's trill.tar.gz), with the version it's from. Only the files an instance gets
+      # (scripts/release.mjs, UPSTREAM_PATHS), and the default wrangler.jsonc.
+      - name: Package the service
+        run: |
+          echo "$GITHUB_REF_NAME" > .trill-version
+          tar -czf trill.tar.gz src migrations test scripts package.json package-lock.json tsconfig.json vitest.config.ts README.md .gitignore wrangler.jsonc .trill-version
+
+      - name: Publish the release
+        run: |
+          gh release delete "$GITHUB_REF_NAME" --yes 2>/dev/null || true
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "Trill ${GITHUB_REF_NAME#v}" --notes-file release-notes.md trill.tar.gz

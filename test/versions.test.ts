@@ -3,7 +3,7 @@ import { call, callJson } from "./helpers";
 import { compareVersions } from "../src/client_versions";
 import { PROTOCOL, SERVICE_VERSION } from "../src/version";
 
-const as = (game: string, version?: string) => ({ "x-purr-game": game, ...(version ? { "x-game-version": version } : {}) });
+const as = (game: string, version?: string) => ({ "x-trill-game": game, ...(version ? { "x-game-version": version } : {}) });
 
 describe("versions", () => {
 	it("compares versions part by part", () => {
@@ -14,7 +14,7 @@ describe("versions", () => {
 
 	it("says what the service is, on /version and on every answer", async () => {
 		expect((await callJson("GET", "/version")).body).toEqual({ version: SERVICE_VERSION, protocol: PROTOCOL });
-		expect((await call("GET", "/nope")).headers.get("x-purr-protocol")).toBe(String(PROTOCOL));
+		expect((await call("GET", "/nope")).headers.get("x-trill-protocol")).toBe(String(PROTOCOL));
 	});
 
 	it("lets every version play when the game sets no range", async () => {

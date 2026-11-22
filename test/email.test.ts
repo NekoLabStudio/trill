@@ -147,7 +147,7 @@ describe("email sign-in", () => {
 
 	it("only writes emails to the console on the developer's own machine", async () => {
 		const response = await worker().fetch(
-			new Request("https://purr.example/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: newEmail(), game: "test" }) }),
+			new Request("https://trill.example/auth/email/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: newEmail(), game: "test" }) }),
 			testEnv,
 		);
 		expect(response.status).toBe(501);
@@ -317,7 +317,7 @@ describe("email drivers", () => {
 		const email = newEmail();
 		const codesBefore = (await testEnv.DB.prepare("SELECT COUNT(*) AS n FROM email_codes").first<{ n: number }>())!.n;
 		const request = () =>
-			worker().fetch(new Request("https://purr.example/auth/email/start", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": crypto.randomUUID() }, body: JSON.stringify({ email, game: "test" }) }), env);
+			worker().fetch(new Request("https://trill.example/auth/email/start", { method: "POST", headers: { "content-type": "application/json", "cf-connecting-ip": crypto.randomUUID() }, body: JSON.stringify({ email, game: "test" }) }), env);
 		const failed = await request();
 		expect(failed.status).toBe(502);
 		// Not counted against the address: asking again straight away is fine.

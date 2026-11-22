@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Brings this instance up to Purr's newest stable release: replaces the files that come from Purr
+// Brings this instance up to Trill's newest stable release: replaces the files that come from Trill
 // (src/, migrations/, tests and scripts) and keeps the instance's own (custom email templates,
 // secrets). wrangler.jsonc gets what the release adds to its settings, and defaults the instance
 // never changed follow the release's; anything else is listed for you. Then it notes a restore
@@ -32,10 +32,10 @@ async function main() {
 	const current = readVersion(".");
 	const tag = wanted ?? (await latestRelease());
 	if (current === tag) {
-		say(`Already on Purr ${tag}.`);
+		say(`Already on Trill ${tag}.`);
 		return;
 	}
-	say(`Updating from ${current || "an unknown version"} to Purr ${tag}...`);
+	say(`Updating from ${current || "an unknown version"} to Trill ${tag}...`);
 	if (!dryRun && spawnSync("git", ["diff", "--quiet", "HEAD"], { stdio: "ignore" }).status === 1) {
 		throw new Error("Commit or put aside your changes first, so the update's changes are easy to review.");
 	}
@@ -83,7 +83,7 @@ async function main() {
 	})();
 	run(wrangler("d1", "migrations", "apply", database, "--remote"), { capture: true });
 	say();
-	say(`Updated to Purr ${tag}.`);
+	say(`Updated to Trill ${tag}.`);
 	if (bookmark) {
 		say("If the database needs to go back to how it was before the update:");
 		say(`  npx wrangler d1 time-travel restore ${database} --bookmark=${bookmark}`);

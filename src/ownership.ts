@@ -1,5 +1,5 @@
 // Whether a player owns the game, for games that only play online for players who bought them
-// (check_ownership). Ownership belongs to the Purr account, per game, and is proven by the copy of
+// (check_ownership). Ownership belongs to the account, per game, and is proven by the copy of
 // the game the player signs in from, whatever they sign in with: a Steam ticket (CheckAppOwnership),
 // the App Store's AppTransaction, or a Play Integrity token. Only that it's owned, where it was
 // proven and when are kept: no platform IDs, and a purchase's ID (or a Steam ID whose ticket came

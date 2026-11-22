@@ -9,7 +9,7 @@ export const args = process.argv.slice(2);
 export const dryRun = args.includes("--dry-run");
 // Scripted answers, for tests: a JSON object of question keys to answers. A list answers the
 // same question again and again, in turn (a menu, say).
-const scripted = process.env.PURR_SCRIPT_ANSWERS ? JSON.parse(process.env.PURR_SCRIPT_ANSWERS) : null;
+const scripted = process.env.TRILL_SCRIPT_ANSWERS ? JSON.parse(process.env.TRILL_SCRIPT_ANSWERS) : null;
 export const isScripted = scripted !== null;
 
 // Questions read from the terminal itself, so the scripts also work when piped into a shell.
@@ -69,7 +69,7 @@ export const wrangler = (...commandArgs) => ["npx", "wrangler", ...commandArgs];
 
 export function requireInstanceFolder() {
 	if (!existsSync("wrangler.jsonc") || !existsSync("src/index.ts")) {
-		throw new Error("Run this from the online services' folder.");
+		throw new Error("Run this from your Trill instance's folder.");
 	}
 }
 

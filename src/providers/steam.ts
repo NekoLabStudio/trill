@@ -1,10 +1,10 @@
-// Steam: the client sends a ticket from GetAuthTicketForWebApi("purr-online"), checked with
+// Steam: the client sends a ticket from GetAuthTicketForWebApi("trill"), checked with
 // Steam's AuthenticateUserTicket using the publisher Web API key. Whether the player owns the game
 // is CheckAppOwnership, with the same key.
 
 import { HttpError } from "../http";
 
-export const STEAM_TICKET_IDENTITY = "purr-online";
+export const STEAM_TICKET_IDENTITY = "trill";
 
 // The Steam ID the ticket is for. A ticket is made for the app that's running, so a game's other
 // app IDs (a Playtest's) are tried after its own.

@@ -82,7 +82,7 @@ export async function signatureOf(game: string, report: string): Promise<{ signa
 	return { signature, title };
 }
 
-// The game's version comes from X-Game-Version, as every request from Purr says it.
+// The game's version comes from X-Game-Version, as every request from a game says it.
 export async function receiveCrashReport(env: Env, accountId: string, body: Record<string, unknown>, versionHeader: string | null): Promise<{ received: true }> {
 	const game = requireString(body, "game", 64);
 	const settings = requireGame(env, game);

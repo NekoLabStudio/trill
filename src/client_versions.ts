@@ -1,6 +1,6 @@
 // Game versions a game's settings allow online (min_version and max_version, both optional;
-// without them, every version is). A Purr game sends its ID and version with every request
-// (X-Purr-Game and X-Game-Version, from its application/config/version), so a game can turn
+// without them, every version is). A game sends its ID and version with every request
+// (X-Trill-Game and X-Game-Version, from its application/config/version), so a game can turn
 // away versions that are too old to play online, or too new for this service.
 
 import type { Env } from "./env";
@@ -22,7 +22,7 @@ export function compareVersions(a: string, b: string): number {
 }
 
 export function checkClientVersion(env: Env, request: Request): void {
-	const game = request.headers.get("x-purr-game") ?? "";
+	const game = request.headers.get("x-trill-game") ?? "";
 	if (!game || !Object.hasOwn(env.GAMES, game)) {
 		return;
 	}
