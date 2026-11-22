@@ -6,8 +6,8 @@ Every game an instance serves is listed under `GAMES` in its `wrangler.jsonc`, b
 
 Set two things in the game's Project Settings:
 
-- `online/url`: your instance's address, such as `https://trill.example.workers.dev`.
-- `online/game`: the game's ID in `GAMES`.
+- `trill/url`: your instance's address, such as `https://trill.example.workers.dev`.
+- `trill/game`: the game's ID in `GAMES`.
 
 `Account`, `Saves`, `Lobbies` and the rest then use Trill whenever the player is signed in to it, and fall back to each platform on their own when they aren't. [Purr's docs](https://oss.nekolab.studio/purr/online/) cover the game's side.
 

@@ -22,7 +22,7 @@ If you'd rather not use the script, [Setting up by hand](manual-setup.md) has th
 
 ## Connecting a game
 
-With Purr, put your instance's address in Project Settings as `online/url`, and the game's ID (the one you gave the setup script) as `online/game`. Then sign in with `Account.sign_in()` and the game is online: see [Connecting a game](connecting.md) for the platform sign-ins, and [Purr's docs](https://oss.nekolab.studio/purr/online/) for the rest.
+With Purr, put your instance's address in Project Settings as `trill/url`, and the game's ID (the one you gave the setup script) as `trill/game`. Then sign in with `Account.sign_in()` and the game is online: see [Connecting a game](connecting.md) for the platform sign-ins, and [Purr's docs](https://oss.nekolab.studio/purr/online/) for the rest.
 
 Players can always sign in with a device account. Steam, Game Center and Google Play Games sign-ins each need a little more on your instance, which [Connecting a game](connecting.md#platform-sign-ins) lists.
 
